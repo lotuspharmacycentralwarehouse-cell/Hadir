@@ -62,6 +62,26 @@
       <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 8px 16px; margin: 0;">خروج</button>
     </div>
 
+    <!-- ➕ قسم إضافة موظف جديد -->
+    <div class="card" style="border-top: 4px solid #28a745;">
+      <h3>👤 إضافة موظف جديد بالنظام</h3>
+      <div class="grid-3">
+        <div>
+          <label for="newEmpName">اسم الموظف الكامل:</label>
+          <input type="text" id="newEmpName" placeholder="مثال: أحمد محمد">
+        </div>
+        <div>
+          <label for="newEmpEmail">البريد الإلكتروني:</label>
+          <input type="email" id="newEmpEmail" placeholder="employee@company.com">
+        </div>
+        <div>
+          <label for="newEmpPassword">كلمة المرور:</label>
+          <input type="password" id="newEmpPassword" placeholder="••••••••">
+        </div>
+      </div>
+      <button onclick="registerNewEmployee()" class="btn-success" style="max-width: 250px;">إنشاء حساب الموظف ➕</button>
+    </div>
+
     <!-- كروت الإحصائيات السريعة -->
     <div class="card">
       <div class="grid-3">
@@ -134,8 +154,8 @@
 
 <!-- استدعاء خدمات Firebase -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   // 🔴 ضع نفس بيانات مشروعك من Firebase هنا
@@ -153,6 +173,8 @@
     appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
 
   };
+
+  const ALLOWED_ADMIN_EMAIL = "admin@company.com"; // <-- ضع إيميل الأدمن المسموح هنا
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -216,6 +238,57 @@
     signOut(auth);
   };
 
+  // ➕ إضافة موظف جديد دون الخروج من حساب الأدمن
+  window.registerNewEmployee = async function() {
+    const name = document.getElementById('newEmpName').value.trim();
+    const email = document.getElementById('newEmpEmail').value.trim();
+    const password = document.getElementById('newEmpPassword').value.trim();
+
+    if (!name || !email || !password) {
+      return alert("يرجى ملء كافة الحقول (الاسم، البريد، وكلمة المرور)");
+    }
+
+    if (password.length < 6) {
+      return alert("كلمة المرور يجب أن لا تقل عن 6 أحرف/أرقام");
+    }
+
+    try {
+      // إنشاء تطبيق Firebase فرعي لمنع طرد الأدمن من حسابه عند إنشاء الموظف
+      let secondaryApp;
+      try {
+        secondaryApp = getApp("secondaryApp");
+      } catch (e) {
+        secondaryApp = initializeApp(firebaseConfig, "secondaryApp");
+      }
+      
+      const secondaryAuth = getAuth(secondaryApp);
+
+      // إنشاء حساب الموظف في الفايربيس
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      
+      // تعيين اسم الموظف في بروفايله
+      await updateProfile(userCredential.user, { displayName: name });
+
+      // تسجيل خروج الموظف من التطبيق الفرعي لمنع التعارض
+      await signOut(secondaryAuth);
+
+      alert(`تم إضافة الموظف (${name}) بنجاح! يمكنه الآن تسجيل الدخول.`);
+      
+      // تفريغ الحقول
+      document.getElementById('newEmpName').value = '';
+      document.getElementById('newEmpEmail').value = '';
+      document.getElementById('newEmpPassword').value = '';
+
+    } catch (error) {
+      console.error("خطأ إنشاء الحساب:", error);
+      if (error.code === 'auth/email-already-in-use') {
+        alert("البريد الإلكتروني مُسجل بالفعل لموظف آخر.");
+      } else {
+        alert("حدث خطأ أثناء إنشاء الحساب: " + error.message);
+      }
+    }
+  };
+
   // جلب كافة بيانات السجلات من الفايربيس
   async function fetchAllData() {
     try {
@@ -245,7 +318,6 @@
   function populateEmployeeSelector() {
     const employeeSelect = document.getElementById('employeeSelect');
     
-    // استخراج أسماء الموظفين والـ UIDs بدون تكرار
     const employeesMap = new Map();
     allLogs.forEach(log => {
       if (!employeesMap.has(log.userId)) {
@@ -262,13 +334,13 @@
     });
   }
 
-  // عند تغيير الموظف، تُعيد تحديث السنوات والشهور لتلائمه
+  // عند تغيير الموظف المختار
   window.onEmployeeChange = function() {
     populateYearSelector();
     applyFilters();
   };
 
-  // تعبئة قائمة السنوات المتاحة بناءً على الموظف المحدد
+  // تعبئة قائمة السنوات
   function populateYearSelector() {
     const yearSelect = document.getElementById('yearSelect');
     const selectedUserId = document.getElementById('employeeSelect').value;
@@ -298,7 +370,7 @@
     updateMonthSelector();
   }
 
-  // تعبئة قائمة الشهور بناءً على الموظف والسنة المحددين
+  // تعبئة قائمة الشهور
   window.updateMonthSelector = function() {
     const yearSelect = document.getElementById('yearSelect');
     const monthSelect = document.getElementById('monthSelect');
@@ -336,7 +408,7 @@
     applyFilters();
   };
 
-  // تطبيق الفلاتر وتحديث الجدول والإحصائيات
+  // تطبيق الفلاتر
   window.applyFilters = function() {
     const selectedUserId = document.getElementById('employeeSelect').value;
     const selectedYear = parseInt(document.getElementById('yearSelect').value);
@@ -384,14 +456,14 @@
     });
   }
 
-  // تحديث كروت الإحصائيات
+  // تحديث الإحصائيات
   function updateStats() {
     document.getElementById('statTotal').textContent = filteredLogs.length;
     const activeCount = filteredLogs.filter(log => !log.checkOut).length;
     document.getElementById('statActive').textContent = activeCount;
   }
 
-  // تصدير التقرير المفلتر إلي Excel
+  // تصدير التقرير المفلتر
   window.exportToExcel = function() {
     if (filteredLogs.length === 0) {
       return alert("لا توجد بيانات لتصديرها بناءً على الفلاتر المختارة.");
