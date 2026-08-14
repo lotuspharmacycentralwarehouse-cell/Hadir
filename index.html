@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>نظام الحضور والانصراف - تسجيل الدخول بالهاتف</title>
+  <title>نظام الحضور والانصراف - تسجيل الدخول</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #f4f6f8; margin: 0; }
     .card { background: white; padding: 25px; border-radius: 12px; max-width: 450px; margin: 30px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
     h2, h3 { color: #333; margin-top: 0; }
-    input, button { width: 100%; padding: 12px; margin-top: 10px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
-    button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+    label { font-size: 14px; color: #555; display: block; margin-top: 10px; }
+    input, button { width: 100%; padding: 12px; margin-top: 6px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
+    button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin-top: 15px; }
     button:hover { background: #0056b3; }
     .btn-danger { background: #dc3545; }
     .btn-danger:hover { background: #bd2130; }
@@ -24,28 +25,23 @@
 
 <div class="card">
   
-  <!-- ================= 1. شاشة تسجيل الدخول برقم الهاتف ================= -->
+  <!-- ================= 1. شاشة تسجيل الدخول بالبريد والكلمة السرية ================= -->
   <div id="authSection">
-    <h2>تسجيل الدخول</h2>
-    <p style="color: #666; font-size: 14px;">أدخل رقم هاتفك مع كود الدولة (مثال: 201000000000+)</p>
+    <h2>تسجيل دخول الموظفين</h2>
     
-    <input type="tel" id="phoneNumber" placeholder="+201000000000">
-    <button id="sign-in-button" onclick="sendOTP()">إرسال رمز التحقق (SMS) 📩</button>
-
-    <!-- العنصر المطلوب لـ reCAPTCHA في Firebase -->
-    <div id="recaptcha-container"></div>
-
-    <div id="otpContainer" class="hidden">
-      <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-      <input type="text" id="otpCode" placeholder="أدخل الرمز المكون من 6 أرقام">
-      <button onclick="verifyOTP()">تأكيد الرمز ودخول 🔓</button>
-    </div>
+    <label for="email">البريد الإلكتروني:</label>
+    <input type="email" id="email" placeholder="example@company.com">
+    
+    <label for="password">كلمة المرور:</label>
+    <input type="password" id="password" placeholder="••••••••">
+    
+    <button onclick="login()">دخول 🔓</button>
   </div>
 
   <!-- ================= 2. شاشة الحضور والانصراف ================= -->
   <div id="attendanceSection" class="hidden">
     <div class="user-info">
-      <span>مرحباً: <strong id="userPhone"></strong></span>
+      <span>مرحباً: <strong id="userEmail"></strong></span>
       <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 5px 10px; margin: 0; font-size: 12px;">خروج</button>
     </div>
 
@@ -63,10 +59,10 @@
 <!-- استدعاء خدمات Firebase (App, Auth, Firestore) -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // 🔴 ضع بيانت مشروعك الخاصة هنا
+  // 🔴 ضع بيانات مشروعك الخاصة هنا
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
 
@@ -87,23 +83,15 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
-  let confirmationResultGlobal = null;
   let currentUser = null;
 
-  // تهيئة reCAPTCHA أوتوماتيكياً
-  window.onload = () => {
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-      'size': 'invisible'
-    });
-  };
-
-  // متابعة حالة تسجيل الدخول (تبقى الجلسة مفتوحة عند إعادة فتح الصفحة)
+  // متابعة حالة تسجيل الدخول تلقائياً
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUser = user;
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('attendanceSection').classList.remove('hidden');
-      document.getElementById('userPhone').textContent = user.phoneNumber;
+      document.getElementById('userEmail').textContent = user.email;
       loadLogs();
     } else {
       currentUser = null;
@@ -112,44 +100,28 @@
     }
   });
 
-  // 1. إرسال رمز الـ OTP
-  window.sendOTP = async function() {
-    const phoneNumber = document.getElementById('phoneNumber').value.trim();
-    if (!phoneNumber) return alert('يرجى إدخال رقم الهاتف بشكل صحيح مع رمز الدولة');
+  // 1. دالة تسجيل الدخول
+  window.login = async function() {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value.trim();
 
-    const appVerifier = window.recaptchaVerifier;
-
-    try {
-      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
-      confirmationResultGlobal = confirmationResult;
-      document.getElementById('otpContainer').classList.remove('hidden');
-      alert('تم إرسال رمز التحقق إلى هاتفك بنجاح!');
-    } catch (error) {
-      console.error("خطأ إرسال SMS:", error);
-      alert('حدث خطأ أثناء إرسال الرمز: ' + error.message);
-    }
-  };
-
-  // 2. تأكيد الرمز والتحقق
-  window.verifyOTP = async function() {
-    const code = document.getElementById('otpCode').value.trim();
-    if (!code) return alert('يرجى إدخال رمز التحقق');
+    if (!email || !password) return alert('يرجى إدخال البريد الإلكتروني وكلمة المرور');
 
     try {
-      await confirmationResultGlobal.confirm(code);
+      await signInWithEmailAndPassword(auth, email, password);
       alert('تم تسجيل الدخول بنجاح!');
     } catch (error) {
-      console.error("رمز غير صحيح:", error);
-      alert('رمز التحقق غير صحيح، يرجى المحاولة مرة أخرى.');
+      console.error("خطأ تسجيل الدخول:", error);
+      alert('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
     }
   };
 
-  // 3. تسجيل الخروج
+  // 2. تسجيل الخروج
   window.logout = function() {
     signOut(auth);
   };
 
-  // 4. تسجيل الحضور (ربط السجل برقم هاتف المستخدم ورقم الـ UID)
+  // 3. تسجيل الحضور
   window.clockIn = async function() {
     const name = document.getElementById('employeeName').value.trim();
     if (!name) return alert('يرجى إدخال الاسم الثلاثي');
@@ -158,7 +130,7 @@
       const now = new Date();
       await addDoc(collection(db, "attendance"), {
         userId: currentUser.uid,
-        userPhone: currentUser.phoneNumber,
+        userEmail: currentUser.email,
         name: name,
         date: now.toLocaleDateString('ar-EG'),
         checkIn: now.toLocaleTimeString('ar-EG'),
@@ -174,10 +146,9 @@
     }
   };
 
-  // 5. تسجيل الانصراف
+  // 4. تسجيل الانصراف
   window.clockOut = async function() {
     try {
-      // البحث عن أحدث سجل حضور للمستخدم الحالي لم يسجل انصراف بعد
       const q = query(
         collection(db, "attendance"), 
         where("userId", "==", currentUser.uid), 
@@ -203,7 +174,7 @@
     }
   };
 
-  // 6. عرض سجلات الموظف الحالي فقط
+  // 5. عرض سجلات الموظف الحالي فقط
   async function loadLogs() {
     if (!currentUser) return;
     const list = document.getElementById('logList');
