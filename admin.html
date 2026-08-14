@@ -158,23 +158,18 @@
   import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // 🔴 ضع نفس بيانات مشروعك من Firebase هنا
+  // 🔴 ضع بيانات مشروعك الصحيحة هنا
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
-
     authDomain: "hadir-c203e.firebaseapp.com",
-
     projectId: "hadir-c203e",
-
     storageBucket: "hadir-c203e.firebasestorage.app",
-
     messagingSenderId: "510890207479",
-
     appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
-
   };
 
-  const ALLOWED_ADMIN_EMAIL = "admin@company.com"; // <-- ضع إيميل الأدمن المسموح هنا
+  // 🔴 البريد الإلكتروني الخاص بمدير النظام المسموح له بالدخول
+  const ALLOWED_ADMIN_EMAIL = "admin@company.com"; 
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -189,13 +184,9 @@
     "سبتمبر (9)", "أكتوبر (10)", "نوفمبر (11)", "ديسمبر (12)"
   ];
 
-  // 🔴 حدد البريد المسموح له بصلادحيات الأدمن فقط
-  const ALLOWED_ADMIN_EMAIL = "admin@ess.system"; // <-- استبدل هذا ببريدك الإلكتروني
-
   // متابعة حالة التسجيل
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      // التحقق من أن البريد الإلكتروني هو البريد المسموح به فقط
       if (user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
         document.getElementById('authSection').classList.add('hidden');
         document.getElementById('adminSection').classList.remove('hidden');
@@ -203,7 +194,6 @@
         
         fetchAllData();
       } else {
-        // إذا كان بريد موظف عالي أو غير مسموح له، نخرجه فوراً
         alert("عذراً، هذا الحساب لا يملك صلاحية الوصول للوحة التحكم.");
         signOut(auth);
       }
@@ -218,9 +208,8 @@
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value.trim();
 
-    if (!email || !password) return alert('يرجى إدخال البيانات');
+    if (!email || !password) return alert('يرجى إدخال البيانات كاملة');
 
-    // تحقق سريع قبل إرسال الطلب لـ Firebase
     if (email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
       return alert('هذا البريد الإلكتروني ليس له صلاحيات مدير النظام.');
     }
@@ -229,7 +218,7 @@
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.error("خطأ الدخول:", error);
-      alert('بيانات غير صحيحة أو حدث خطأ في تسجيل الدخول.');
+      alert('بيانات غير صحيحة أو حدث خطأ أثناء تسجيل الدخول.');
     }
   };
 
@@ -253,7 +242,6 @@
     }
 
     try {
-      // إنشاء تطبيق Firebase فرعي لمنع طرد الأدمن من حسابه عند إنشاء الموظف
       let secondaryApp;
       try {
         secondaryApp = getApp("secondaryApp");
@@ -262,19 +250,13 @@
       }
       
       const secondaryAuth = getAuth(secondaryApp);
-
-      // إنشاء حساب الموظف في الفايربيس
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
       
-      // تعيين اسم الموظف في بروفايله
       await updateProfile(userCredential.user, { displayName: name });
-
-      // تسجيل خروج الموظف من التطبيق الفرعي لمنع التعارض
       await signOut(secondaryAuth);
 
       alert(`تم إضافة الموظف (${name}) بنجاح! يمكنه الآن تسجيل الدخول.`);
       
-      // تفريغ الحقول
       document.getElementById('newEmpName').value = '';
       document.getElementById('newEmpEmail').value = '';
       document.getElementById('newEmpPassword').value = '';
@@ -298,7 +280,7 @@
       allLogs = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        let dateObj = data.timestamp ? data.timestamp.toDate() : new Date(data.date);
+        let dateObj = data.timestamp ? data.timestamp.toDate() : new Date(data.date || Date.now());
         data.year = data.year || dateObj.getFullYear();
         data.month = data.month || (dateObj.getMonth() + 1);
         allLogs.push(data);
@@ -317,11 +299,12 @@
   // تعبئة قائمة الموظفين
   function populateEmployeeSelector() {
     const employeeSelect = document.getElementById('employeeSelect');
-    
     const employeesMap = new Map();
+
     allLogs.forEach(log => {
-      if (!employeesMap.has(log.userId)) {
-        employeesMap.set(log.userId, log.name || log.userEmail);
+      const id = log.userId || log.userEmail;
+      if (id && !employeesMap.has(id)) {
+        employeesMap.set(id, log.name || log.userEmail || "غير معروف");
       }
     });
 
@@ -347,7 +330,7 @@
 
     let relevantLogs = allLogs;
     if (selectedUserId !== "ALL") {
-      relevantLogs = allLogs.filter(log => log.userId === selectedUserId);
+      relevantLogs = allLogs.filter(log => (log.userId === selectedUserId || log.userEmail === selectedUserId));
     }
 
     const availableYears = [...new Set(relevantLogs.map(log => log.year))];
@@ -379,7 +362,7 @@
 
     let relevantLogs = allLogs;
     if (selectedUserId !== "ALL") {
-      relevantLogs = relevantLogs.filter(log => log.userId === selectedUserId);
+      relevantLogs = relevantLogs.filter(log => (log.userId === selectedUserId || log.userEmail === selectedUserId));
     }
     
     relevantLogs = relevantLogs.filter(log => log.year === selectedYear);
@@ -415,7 +398,7 @@
     const selectedMonth = parseInt(document.getElementById('monthSelect').value);
 
     filteredLogs = allLogs.filter(log => {
-      const matchUser = (selectedUserId === "ALL" || log.userId === selectedUserId);
+      const matchUser = (selectedUserId === "ALL" || log.userId === selectedUserId || log.userEmail === selectedUserId);
       const matchYear = (!selectedYear || log.year === selectedYear);
       const matchMonth = (!selectedMonth || log.month === selectedMonth);
       return matchUser && matchYear && matchMonth;
@@ -437,14 +420,14 @@
 
     filteredLogs.forEach(log => {
       const tr = document.createElement('tr');
-      const dateStr = log.timestamp ? log.timestamp.toDate().toLocaleDateString('ar-EG') : log.date;
+      const dateStr = log.timestamp ? log.timestamp.toDate().toLocaleDateString('ar-EG') : (log.date || '-');
       const isPresent = !log.checkOut;
 
       tr.innerHTML = `
         <td><strong>${log.name || 'غير معروف'}</strong></td>
-        <td>${log.userEmail}</td>
+        <td>${log.userEmail || '-'}</td>
         <td>${dateStr}</td>
-        <td>${log.checkIn}</td>
+        <td>${log.checkIn || '-'}</td>
         <td>${log.checkOut || '-'}</td>
         <td>
           <span class="${isPresent ? 'badge-in' : 'badge-out'}">
@@ -477,11 +460,11 @@
     csvContent += "اسم الموظف,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف,الحالة\n";
 
     filteredLogs.forEach(row => {
-      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('ar-EG') : row.date;
+      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('ar-EG') : (row.date || '-');
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
       const statusStr = row.checkOut ? 'منصرف' : 'حاضر الآن';
 
-      csvContent += `"${row.name}","${row.userEmail}","${dateStr}","${row.checkIn}","${checkOutStr}","${statusStr}"\n`;
+      csvContent += `"${row.name || 'غير معروف'}","${row.userEmail || '-'}","${dateStr}","${row.checkIn || '-'}","${checkOutStr}","${statusStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
