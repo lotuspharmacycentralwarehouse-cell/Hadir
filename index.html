@@ -2,56 +2,157 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <title>نظام الحضور والانصراف - Firebase</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام الحضور والانصراف - تسجيل الدخول بالهاتف</title>
   <style>
-    body { font-family: system-ui, sans-serif; padding: 20px; background: #f4f6f8; }
-    .card { background: white; padding: 20px; border-radius: 8px; max-width: 500px; margin: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
-    button { background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #f4f6f8; margin: 0; }
+    .card { background: white; padding: 25px; border-radius: 12px; max-width: 450px; margin: 30px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    h2, h3 { color: #333; margin-top: 0; }
+    input, button { width: 100%; padding: 12px; margin-top: 10px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
+    button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
     button:hover { background: #0056b3; }
+    .btn-danger { background: #dc3545; }
+    .btn-danger:hover { background: #bd2130; }
+    .btn-secondary { background: #6c757d; }
+    .hidden { display: none; }
     ul { margin-top: 20px; padding: 0; list-style: none; }
-    li { background: #fff; padding: 10px; margin-bottom: 5px; border-radius: 4px; border-right: 4px solid #007bff; }
+    li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; }
+    .user-info { background: #e9ecef; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <h2>تسجيل الحضور والانصراف</h2>
-  <input type="text" id="employeeName" placeholder="أدخل اسم الموظف">
-  <button onclick="clockIn()">تسجيل حضور 🟢</button>
-  <button onclick="clockOut()" style="background:#dc3545;">تسجيل انصراف 🔴</button>
+  
+  <!-- ================= 1. شاشة تسجيل الدخول برقم الهاتف ================= -->
+  <div id="authSection">
+    <h2>تسجيل الدخول</h2>
+    <p style="color: #666; font-size: 14px;">أدخل رقم هاتفك مع كود الدولة (مثال: 201000000000+)</p>
+    
+    <input type="tel" id="phoneNumber" placeholder="+201000000000">
+    <button id="sign-in-button" onclick="sendOTP()">إرسال رمز التحقق (SMS) 📩</button>
 
-  <h3>سجلات اليوم:</h3>
-  <ul id="logList">جاري تحميل البيانات...</ul>
+    <!-- العنصر المطلوب لـ reCAPTCHA في Firebase -->
+    <div id="recaptcha-container"></div>
+
+    <div id="otpContainer" class="hidden">
+      <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+      <input type="text" id="otpCode" placeholder="أدخل الرمز المكون من 6 أرقام">
+      <button onclick="verifyOTP()">تأكيد الرمز ودخول 🔓</button>
+    </div>
+  </div>
+
+  <!-- ================= 2. شاشة الحضور والانصراف ================= -->
+  <div id="attendanceSection" class="hidden">
+    <div class="user-info">
+      <span>مرحباً: <strong id="userPhone"></strong></span>
+      <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 5px 10px; margin: 0; font-size: 12px;">خروج</button>
+    </div>
+
+    <h2>تسجيل الحضور والانصراف</h2>
+    <input type="text" id="employeeName" placeholder="أدخل اسمك الثلاثي">
+    <button onclick="clockIn()">تسجيل حضور 🟢</button>
+    <button onclick="clockOut()" class="btn-danger">تسجيل انصراف 🔴</button>
+
+    <h3>سجل الحضور الخاص بك:</h3>
+    <ul id="logList">جاري تحميل البيانات...</ul>
+  </div>
+
 </div>
 
-<!-- استدعاء مكتبات Firebase الحديثة (v10 Modular SDK) -->
+<!-- استدعاء خدمات Firebase (App, Auth, Firestore) -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // 🔴 ضع بيانات مشروعك هنا بدلاً من هذا الكائن
+  // 🔴 ضع بيانت مشروعك الخاصة هنا
   const firebaseConfig = {
-    apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
-    authDomain: "hadir-c203e.firebaseapp.com",
-    projectId: "hadir-c203e",
-    storageBucket: "hadir-c203e.firebasestorage.app",
-    messagingSenderId: "510890207479",
-    appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
   };
 
-  // تهيئة Firebase و Firestore
+  // تهيئة الخدمات
   const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
   const db = getFirestore(app);
 
-  // 1. دالة تسجيل الحضور
+  let confirmationResultGlobal = null;
+  let currentUser = null;
+
+  // تهيئة reCAPTCHA أوتوماتيكياً
+  window.onload = () => {
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      'size': 'invisible'
+    });
+  };
+
+  // متابعة حالة تسجيل الدخول (تبقى الجلسة مفتوحة عند إعادة فتح الصفحة)
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser = user;
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('attendanceSection').classList.remove('hidden');
+      document.getElementById('userPhone').textContent = user.phoneNumber;
+      loadLogs();
+    } else {
+      currentUser = null;
+      document.getElementById('authSection').classList.remove('hidden');
+      document.getElementById('attendanceSection').classList.add('hidden');
+    }
+  });
+
+  // 1. إرسال رمز الـ OTP
+  window.sendOTP = async function() {
+    const phoneNumber = document.getElementById('phoneNumber').value.trim();
+    if (!phoneNumber) return alert('يرجى إدخال رقم الهاتف بشكل صحيح مع رمز الدولة');
+
+    const appVerifier = window.recaptchaVerifier;
+
+    try {
+      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      confirmationResultGlobal = confirmationResult;
+      document.getElementById('otpContainer').classList.remove('hidden');
+      alert('تم إرسال رمز التحقق إلى هاتفك بنجاح!');
+    } catch (error) {
+      console.error("خطأ إرسال SMS:", error);
+      alert('حدث خطأ أثناء إرسال الرمز: ' + error.message);
+    }
+  };
+
+  // 2. تأكيد الرمز والتحقق
+  window.verifyOTP = async function() {
+    const code = document.getElementById('otpCode').value.trim();
+    if (!code) return alert('يرجى إدخال رمز التحقق');
+
+    try {
+      await confirmationResultGlobal.confirm(code);
+      alert('تم تسجيل الدخول بنجاح!');
+    } catch (error) {
+      console.error("رمز غير صحيح:", error);
+      alert('رمز التحقق غير صحيح، يرجى المحاولة مرة أخرى.');
+    }
+  };
+
+  // 3. تسجيل الخروج
+  window.logout = function() {
+    signOut(auth);
+  };
+
+  // 4. تسجيل الحضور (ربط السجل برقم هاتف المستخدم ورقم الـ UID)
   window.clockIn = async function() {
     const name = document.getElementById('employeeName').value.trim();
-    if (!name) return alert('يرجى إدخال اسم الموظف');
+    if (!name) return alert('يرجى إدخال الاسم الثلاثي');
 
     try {
       const now = new Date();
       await addDoc(collection(db, "attendance"), {
+        userId: currentUser.uid,
+        userPhone: currentUser.phoneNumber,
         name: name,
         date: now.toLocaleDateString('ar-EG'),
         checkIn: now.toLocaleTimeString('ar-EG'),
@@ -62,46 +163,55 @@
       alert(`تم تسجيل حضور ${name} بنجاح!`);
       loadLogs();
     } catch (e) {
-      console.error("خطأ في حفظ البيانات: ", e);
+      console.error("خطأ الحفظ:", e);
       alert("حدث خطأ أثناء تسجيل الحضور.");
     }
   };
 
-  // 2. دالة تسجيل الانصراف
+  // 5. تسجيل الانصراف
   window.clockOut = async function() {
-    const name = document.getElementById('employeeName').value.trim();
-    if (!name) return alert('يرجى إدخال اسم الموظف');
-
     try {
-      // البحث عن أحدث تسجيل حضور للموظف لم يسجل انصراف بعد
-      const q = query(collection(db, "attendance"), where("name", "==", name), where("checkOut", "==", null));
+      // البحث عن أحدث سجل حضور للمستخدم الحالي لم يسجل انصراف بعد
+      const q = query(
+        collection(db, "attendance"), 
+        where("userId", "==", currentUser.uid), 
+        where("checkOut", "==", null)
+      );
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        return alert("لم يتم العثور على تسجيل حضور نشط لهذا الموظف!");
+        return alert("لم يتم العثور على تسجيل حضور نشط لك!");
       }
 
       const now = new Date();
-      // تحديث أول سجل مطابق
       const docToUpdate = querySnapshot.docs[0];
       await updateDoc(doc(db, "attendance", docToUpdate.id), {
         checkOut: now.toLocaleTimeString('ar-EG')
       });
 
-      alert(`تم تسجيل انصراف ${name} بنجاح!`);
+      alert("تم تسجيل انصرافك بنجاح!");
       loadLogs();
     } catch (e) {
-      console.error("خطأ في التحديث: ", e);
+      console.error("خطأ التحديث:", e);
       alert("حدث خطأ أثناء تسجيل الانصراف.");
     }
   };
 
-  // 3. دالة جلب وعرض السجلات
+  // 6. عرض سجلات الموظف الحالي فقط
   async function loadLogs() {
+    if (!currentUser) return;
     const list = document.getElementById('logList');
-    list.innerHTML = '';
+    list.innerHTML = 'جاري التحميل...';
+
+    const q = query(collection(db, "attendance"), where("userId", "==", currentUser.uid));
+    const querySnapshot = await getDocs(q);
     
-    const querySnapshot = await getDocs(collection(db, "attendance"));
+    list.innerHTML = '';
+    if (querySnapshot.empty) {
+      list.innerHTML = '<li>لا توجد سجلات سابقة لك.</li>';
+      return;
+    }
+
     querySnapshot.forEach((doc) => {
       const data = doc.data();
       const li = document.createElement('li');
@@ -109,28 +219,7 @@
       list.appendChild(li);
     });
   }
-
-  // تحميل السجلات فور فتح الصفحة
-  loadLogs();
 </script>
-<!-- <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
 
-  // Your web app's Firebase configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
-    authDomain: "hadir-c203e.firebaseapp.com",
-    projectId: "hadir-c203e",
-    storageBucket: "hadir-c203e.firebasestorage.app",
-    messagingSenderId: "510890207479",
-    appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-</script> -->
 </body>
 </html>
