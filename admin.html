@@ -167,14 +167,24 @@
     "سبتمبر (9)", "أكتوبر (10)", "نوفمبر (11)", "ديسمبر (12)"
   ];
 
+  // 🔴 حدد البريد المسموح له بصلادحيات الأدمن فقط
+  const ALLOWED_ADMIN_EMAIL = "admin@company.com"; // <-- استبدل هذا ببريدك الإلكتروني
+
   // متابعة حالة التسجيل
   onAuthStateChanged(auth, (user) => {
     if (user) {
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('adminSection').classList.remove('hidden');
-      document.getElementById('adminEmail').textContent = user.email;
-      
-      fetchAllData();
+      // التحقق من أن البريد الإلكتروني هو البريد المسموح به فقط
+      if (user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+        document.getElementById('authSection').classList.add('hidden');
+        document.getElementById('adminSection').classList.remove('hidden');
+        document.getElementById('adminEmail').textContent = user.email;
+        
+        fetchAllData();
+      } else {
+        // إذا كان بريد موظف عالي أو غير مسموح له، نخرجه فوراً
+        alert("عذراً، هذا الحساب لا يملك صلاحية الوصول للوحة التحكم.");
+        signOut(auth);
+      }
     } else {
       document.getElementById('authSection').classList.remove('hidden');
       document.getElementById('adminSection').classList.add('hidden');
@@ -188,11 +198,16 @@
 
     if (!email || !password) return alert('يرجى إدخال البيانات');
 
+    // تحقق سريع قبل إرسال الطلب لـ Firebase
+    if (email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+      return alert('هذا البريد الإلكتروني ليس له صلاحيات مدير النظام.');
+    }
+
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.error("خطأ الدخول:", error);
-      alert('بيانات غير صحيحة أو ليس لديك صلاحية.');
+      alert('بيانات غير صحيحة أو حدث خطأ في تسجيل الدخول.');
     }
   };
 
