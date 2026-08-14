@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>لوحة تحكم الأدمن - إدارة الحضور والانصراف</title>
+  
+  <!-- مكتبة قراءة ملفات الإكسيل (SheetJS) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #eef2f5; margin: 0; }
     .container { max-width: 1000px; margin: 0 auto; }
@@ -15,6 +19,8 @@
     button:hover { background: #0056b3; }
     .btn-success { background: #28a745; }
     .btn-success:hover { background: #218838; }
+    .btn-warning { background: #ffc107; color: #212529; }
+    .btn-warning:hover { background: #e0a800; }
     .btn-secondary { background: #6c757d; }
     .hidden { display: none; }
     
@@ -80,6 +86,22 @@
         </div>
       </div>
       <button onclick="registerNewEmployee()" class="btn-success" style="max-width: 250px;">إنشاء حساب الموظف ➕</button>
+    </div>
+
+    <!-- 📥 قسم رفع شيت الحضور والانصراف (جديد) -->
+    <div class="card" style="border-top: 4px solid #ffc107;">
+      <h3>📂 رفع سجلات حضور وانصراف عبر Excel</h3>
+      <p style="font-size: 13px; color: #555; margin-bottom: 10px;">
+        يجب أن يحتوي ملف الإكسيل على الأعمدة التالية بالظبط باللغة الإنجليزية في الصف الأول: <br>
+        <code>name</code> | <code>email</code> | <code>day</code> | <code>check in</code> | <code>check out</code>
+      </p>
+      <div style="display: flex; gap: 15px; align-items: flex-end;">
+        <div style="flex: 1;">
+          <label for="excelFile">اختر ملف Excel (.xlsx أو .xls أو .csv):</label>
+          <input type="file" id="excelFile" accept=".xlsx, .xls, .csv">
+        </div>
+        <button onclick="uploadExcel()" class="btn-warning" style="max-width: 200px; margin-top: 0;">رفع البيانات 📤</button>
+      </div>
     </div>
 
     <!-- كروت الإحصائيات السريعة -->
@@ -156,7 +178,7 @@
 <script type="module">
   import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, getDocs, query, orderBy, writeBatch, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   // 🔴 ضع بيانات مشروعك الصحيحة هنا
   const firebaseConfig = {
@@ -168,8 +190,7 @@
     appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
   };
 
-  // 🔴 البريد الإلكتروني الخاص بمدير النظام المسموح له بالدخول
-  const ALLOWED_ADMIN_EMAIL = "admin@ess.system"; 
+  const ALLOWED_ADMIN_EMAIL = "admin@company.com"; 
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
@@ -227,7 +248,7 @@
     signOut(auth);
   };
 
-  // ➕ إضافة موظف جديد دون الخروج من حساب الأدمن
+  // ➕ إضافة موظف جديد
   window.registerNewEmployee = async function() {
     const name = document.getElementById('newEmpName').value.trim();
     const email = document.getElementById('newEmpEmail').value.trim();
@@ -269,6 +290,87 @@
         alert("حدث خطأ أثناء إنشاء الحساب: " + error.message);
       }
     }
+  };
+
+  // 📥 قراءة ورفع شيت الإكسيل إلى الفايربيس
+  window.uploadExcel = function() {
+    const fileInput = document.getElementById('excelFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+      return alert("يرجى اختيار ملف Excel أولاً.");
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        // قراءة الصفحة الأولى من شيت الإكسيل
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // تحويل البيانات إلى JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+        if (jsonData.length === 0) {
+          return alert("الملف فارغ أو لا يحتوي على بيانات مقبولة.");
+        }
+
+        // استخدام Firestore Batch للإضافة السريعة بالدفعة
+        const batch = writeBatch(db);
+        let validRowsCount = 0;
+
+        jsonData.forEach(row => {
+          // استخراج الحقول بغض النظر عن حالة الأحرف (Case insensitive)
+          const name = row['name'] || row['Name'] || '';
+          const email = row['email'] || row['Email'] || '';
+          const day = row['day'] || row['Day'] || '';
+          const checkIn = row['check in'] || row['Check in'] || row['Check In'] || row['check_in'] || '';
+          const checkOut = row['check out'] || row['Check out'] || row['Check Out'] || row['check_out'] || '';
+
+          if (email && day) {
+            const dateObj = new Date(day);
+            const isInvalidDate = isNaN(dateObj.getTime());
+
+            // تجهيز كائن البيانات بالصيغة المقبولة في النظام
+            const attendanceDoc = {
+              name: name || 'غير معروف',
+              userEmail: email.trim().toLowerCase(),
+              userId: email.trim().toLowerCase(), // كمعرّف احتياطي
+              date: day,
+              checkIn: checkIn || '-',
+              checkOut: checkOut || '',
+              year: !isInvalidDate ? dateObj.getFullYear() : new Date().getFullYear(),
+              month: !isInvalidDate ? (dateObj.getMonth() + 1) : (new Date().getMonth() + 1),
+              timestamp: !isInvalidDate ? dateObj : new Date()
+            };
+
+            const docRef = doc(collection(db, "attendance"));
+            batch.set(docRef, attendanceDoc);
+            validRowsCount++;
+          }
+        });
+
+        if (validRowsCount === 0) {
+          return alert("لم يتم العثور على أي صفوف صحيحة. يرجى التأكد من عناوين الأعمدة: name, email, day, check in, check out");
+        }
+
+        // حفظ الدفعة في Firestore
+        await batch.commit();
+        alert(`تم رفع ${validRowsCount} سجل حضور وانصراف بنجاح!`);
+        
+        fileInput.value = ''; // تفريغ حقل اختيار الملف
+        fetchAllData(); // إعادة تحميل الجدول والبيانات
+
+      } catch (err) {
+        console.error("خطأ قراءة ملف الإكسيل:", err);
+        alert("حدث خطأ أثناء قراءة أو رفع ملف Excel.");
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
   };
 
   // جلب كافة بيانات السجلات من الفايربيس
