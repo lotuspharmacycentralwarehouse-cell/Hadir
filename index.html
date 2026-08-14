@@ -184,7 +184,7 @@
         year: now.getFullYear(),
         month: now.getMonth() + 1,
         day: now.getDate(),
-        checkIn: now.toLocaleTimeString('ar-EG'),
+        checkIn: now.toLocaleTimeString('en-US'),
         checkOut: null,
         timestamp: now
       });
@@ -216,7 +216,7 @@
       const now = new Date();
       const docToUpdate = querySnapshot.docs[0];
       await updateDoc(doc(db, "attendance", docToUpdate.id), {
-        checkOut: now.toLocaleTimeString('ar-EG')
+        checkOut: now.toLocaleTimeString('en-US')
       });
 
       alert("تم تسجيل انصرافك بنجاح!");
