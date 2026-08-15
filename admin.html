@@ -53,7 +53,7 @@
       margin-top: 10px;
     }
   </style>
-  <!-- مكتبة قراءة ملفات Excel (PapaParse للـ CSV و SheetJS لـ Excel) -->
+  <!-- مكتبة قراءة ملفات Excel -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -65,7 +65,7 @@
     <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 8px 16px; margin: 0;">تسجيل الخروج</button>
   </div>
 
-  <!-- 1. قسم إضافة / تعديل موظف -->
+  <!-- 1. قسم إضافة موظف -->
   <div class="card">
     <h3>👤 إنشاء حساب موظف جديد</h3>
     <form id="employeeForm">
@@ -109,7 +109,7 @@
   <!-- 2. قسم رفع سجلات الحضور والانصراف من ملف -->
   <div class="card">
     <h3>📤 رفع سجل الحضور والانصراف (ملف Excel أو CSV)</h3>
-    <p style="font-size: 13px; color: #666;">يجب أن يحتوي الملف على الأعمدة التالية: <strong>كود الموظف (أو userId)، التاريخ (YYYY-MM-DD)، الحضور (checkIn)، الانصراف (checkOut)</strong>.</p>
+    <p style="font-size: 13px; color: #666;">يجب أن يحتوي الملف على الأعمدة التالية: <strong>كود الموظف (أو userId)، التاريخ (date)، الحضور (checkIn)، الانصراف (checkOut)</strong>.</p>
     
     <div class="upload-area">
       <input type="file" id="attendanceFile" accept=".csv, .xlsx, .xls">
@@ -205,6 +205,47 @@
     }
   });
 
+  // --- دوال تحويل أرقام إكسل لتاريخ ووقت عادي ---
+  function excelSerialToDate(serial) {
+    if (!serial || isNaN(serial)) return serial;
+    const num = parseFloat(serial);
+    if (num < 1000) return serial; // ليس تاريخ إكسل (ربما نص عادي)
+    
+    const utc_days = Math.floor(num - 25569);
+    const utc_value = utc_days * 86400;
+    const date_info = new Date(utc_value * 1000);
+    
+    const year = date_info.getFullYear();
+    const month = String(date_info.getMonth() + 1).padStart(2, '0');
+    const day = String(date_info.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function excelSerialToTime(serial) {
+    if (serial === undefined || serial === null || serial === '' || serial === '-') return '-';
+    
+    // إذا كانت القيمة نص وقت عادي مثل "08:30" أو "14:15"
+    if (typeof serial === 'string' && serial.includes(':')) {
+      return serial;
+    }
+
+    const num = parseFloat(serial);
+    if (isNaN(num)) return serial;
+
+    // الحصول على الجزء العشري فقط للوقت
+    const timeFraction = num % 1;
+    let totalSeconds = Math.round(timeFraction * 86400);
+
+    const hours = Math.floor(totalSeconds / 3600);
+    totalSeconds %= 3600;
+    const minutes = Math.floor(totalSeconds / 60);
+
+    const formattedHours = String(hours).padStart(2, '0');
+    const formattedMinutes = String(minutes).padStart(2, '0');
+
+    return `${formattedHours}:${formattedMinutes}`;
+  }
+
   function generateRandomPassword() {
     const randomNumbers = Math.floor(100000 + Math.random() * 900000);
     return `ess#${randomNumbers}`;
@@ -263,7 +304,7 @@
     });
   };
 
-  // 2. رفع سجلات الحضور والانصراف من Excel / CSV
+  // 2. رفع مع تصحيح تحويل التواريخ والأوقات
   window.uploadAttendanceFile = async function() {
     const fileInput = document.getElementById('attendanceFile');
     const file = fileInput.files[0];
@@ -277,10 +318,12 @@
     reader.onload = async function(e) {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: false });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const jsonRows = XLSX.utils.sheet_to_json(worksheet);
+        
+        // جلب البيانات كـ JSON
+        const jsonRows = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
         if (jsonRows.length === 0) {
           return alert("الملف فارغ أو صيغته غير صحيحة.");
@@ -289,13 +332,18 @@
         let successCount = 0;
 
         for (const row of jsonRows) {
-          // استخراج الحقول بغض النظر عن اختلاف المسميات بالأجزاء (عربي / إنكليزي)
           const userId = (row['كود الموظف'] || row['userId'] || row['Code'] || '').toString().trim();
-          const dateStr = (row['التاريخ'] || row['date'] || row['Date'] || '').toString().trim();
-          const checkIn = (row['التاكيد'] || row['الحضور'] || row['checkIn'] || row['CheckIn'] || '').toString().trim();
-          const checkOut = (row['الانصراف'] || row['checkOut'] || row['CheckOut'] || '').toString().trim();
+          let rawDate = (row['التاريخ'] || row['date'] || row['Date'] || '').toString().trim();
+          let rawCheckIn = row['التاكيد'] || row['الحضور'] || row['checkIn'] || row['CheckIn'] || '';
+          let rawCheckOut = row['الانصراف'] || row['checkOut'] || row['CheckOut'] || '';
 
-          if (userId && dateStr) {
+          if (userId && rawDate) {
+            // تحويل التاريخ من صيغة إكسل
+            const dateStr = excelSerialToDate(rawDate);
+            // تحويل أوقات الحضور والانصراف من صيغة إكسل
+            const checkIn = excelSerialToTime(rawCheckIn);
+            const checkOut = excelSerialToTime(rawCheckOut);
+
             const dateParts = dateStr.split('-');
             let year = new Date().getFullYear();
             let month = new Date().getMonth() + 1;
@@ -305,7 +353,6 @@
               month = parseInt(dateParts[1]);
             }
 
-            // معرف المستند الفريد لمنع تكرار نفس اليوم للموظف
             const docId = `${userId}_${dateStr}`;
 
             await setDoc(doc(db, "attendance", docId), {
@@ -322,7 +369,7 @@
           }
         }
 
-        alert(`تم رفع ${successCount} سجل بنجاح!`);
+        alert(`تم تصحيح ورفع ${successCount} سجل بنجاح!`);
         fileInput.value = '';
         await loadAllAttendance();
 
