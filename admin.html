@@ -88,7 +88,7 @@
       <button onclick="registerNewEmployee()" class="btn-success" style="max-width: 250px;">إنشاء حساب الموظف ➕</button>
     </div>
 
-    <!-- 📥 قسم رفع شيت الحضور والانصراف (جديد) -->
+    <!-- 📥 قسم رفع شيت الحضور والانصراف -->
     <div class="card" style="border-top: 4px solid #ffc107;">
       <h3>📂 رفع سجلات حضور وانصراف عبر Excel</h3>
       <p style="font-size: 13px; color: #555; margin-bottom: 10px;">
@@ -180,7 +180,6 @@
   import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, getDocs, query, orderBy, writeBatch, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // 🔴 ضع بيانات مشروعك الصحيحة هنا
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
     authDomain: "hadir-c203e.firebaseapp.com",
@@ -200,10 +199,54 @@
   let filteredLogs = [];
 
   const monthNames = [
-    "يناير (1)", "فبراير (2)", "مارس (3)", "أبريل (4)", 
-    "مايو (5)", "يونيو (6)", "يوليو (7)", "أغسطس (8)", 
-    "سبتمبر (9)", "أكتوبر (10)", "نوفمبر (11)", "ديسمبر (12)"
+    "January (1)", "February (2)", "March (3)", "April (4)", 
+    "May (5)", "June (6)", "July (7)", "August (8)", 
+    "September (9)", "October (10)", "November (11)", "December (12)"
   ];
+
+  // دالة مساعدة لتحليل صيغة DD/MM/YYYY إلى كائن Date ممتاز
+  function parseDateString(dateStr) {
+    if (!dateStr) return new Date();
+    if (dateStr instanceof Date) return dateStr;
+    
+    const str = String(dateStr).trim();
+    if (str.includes('/')) {
+      const parts = str.split('/');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const year = parseInt(parts[2], 10);
+        return new Date(year, month, day);
+      }
+    } else if (str.includes('-')) {
+      const parts = str.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) { // YYYY-MM-DD
+          return new Date(parts[0], parseInt(parts[1], 10) - 1, parts[2]);
+        } else { // DD-MM-YYYY
+          return new Date(parts[2], parseInt(parts[1], 10) - 1, parts[0]);
+        }
+      }
+    }
+    
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  // دالة تحويل أرقام الوقت العشرية إلى AM/PM
+  function parseTimeString(val) {
+    if (val === undefined || val === null || val === '') return '';
+    if (typeof val === 'number') {
+      const totalSeconds = Math.round(val * 24 * 3600);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const period = hours >= 12 ? 'PM' : 'AM';
+      const formattedHours = hours % 12 || 12;
+      const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
+      return `${formattedHours}:${formattedMinutes} ${period}`;
+    }
+    return String(val).trim();
+  }
 
   // متابعة حالة التسجيل
   onAuthStateChanged(auth, (user) => {
@@ -305,46 +348,42 @@
     reader.onload = async function(e) {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true, raw: false });
         
-        // قراءة الصفحة الأولى من شيت الإكسيل
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // تحويل البيانات إلى JSON
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
         if (jsonData.length === 0) {
           return alert("الملف فارغ أو لا يحتوي على بيانات مقبولة.");
         }
 
-        // استخدام Firestore Batch للإضافة السريعة بالدفعة
         const batch = writeBatch(db);
         let validRowsCount = 0;
 
         jsonData.forEach(row => {
-          // استخراج الحقول بغض النظر عن حالة الأحرف (Case insensitive)
           const name = row['name'] || row['Name'] || '';
           const email = row['email'] || row['Email'] || '';
           const day = row['day'] || row['Day'] || '';
-          const checkIn = row['check in'] || row['Check in'] || row['Check In'] || row['check_in'] || '';
-          const checkOut = row['check out'] || row['Check out'] || row['Check Out'] || row['check_out'] || '';
+          const rawCheckIn = row['check in'] || row['Check in'] || row['Check In'] || row['check_in'] || '';
+          const rawCheckOut = row['check out'] || row['Check out'] || row['Check Out'] || row['check_out'] || '';
 
           if (email && day) {
-            const dateObj = new Date(day);
-            const isInvalidDate = isNaN(dateObj.getTime());
+            const dateObj = parseDateString(day);
+            const formattedIn = parseTimeString(rawCheckIn);
+            const formattedOut = parseTimeString(rawCheckOut);
 
-            // تجهيز كائن البيانات بالصيغة المقبولة في النظام
             const attendanceDoc = {
-              name: name || 'غير معروف',
-              userEmail: email.trim().toLowerCase(),
-              userId: email.trim().toLowerCase(), // كمعرّف احتياطي
+              name: name || 'Unknown',
+              userEmail: String(email).trim().toLowerCase(),
+              userId: String(email).trim().toLowerCase(),
               date: day,
-              checkIn: checkIn || '-',
-              checkOut: checkOut || '',
-              year: !isInvalidDate ? dateObj.getFullYear() : new Date().getFullYear(),
-              month: !isInvalidDate ? (dateObj.getMonth() + 1) : (new Date().getMonth() + 1),
-              timestamp: !isInvalidDate ? dateObj : new Date()
+              checkIn: formattedIn || '-',
+              checkOut: formattedOut || '',
+              year: dateObj.getFullYear(),
+              month: dateObj.getMonth() + 1,
+              timestamp: dateObj
             };
 
             const docRef = doc(collection(db, "attendance"));
@@ -357,12 +396,11 @@
           return alert("لم يتم العثور على أي صفوف صحيحة. يرجى التأكد من عناوين الأعمدة: name, email, day, check in, check out");
         }
 
-        // حفظ الدفعة في Firestore
         await batch.commit();
         alert(`تم رفع ${validRowsCount} سجل حضور وانصراف بنجاح!`);
         
-        fileInput.value = ''; // تفريغ حقل اختيار الملف
-        fetchAllData(); // إعادة تحميل الجدول والبيانات
+        fileInput.value = '';
+        fetchAllData();
 
       } catch (err) {
         console.error("خطأ قراءة ملف الإكسيل:", err);
@@ -382,9 +420,10 @@
       allLogs = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        let dateObj = data.timestamp ? data.timestamp.toDate() : new Date(data.date || Date.now());
+        let dateObj = data.timestamp ? data.timestamp.toDate() : parseDateString(data.date);
         data.year = data.year || dateObj.getFullYear();
         data.month = data.month || (dateObj.getMonth() + 1);
+        data.dateObj = dateObj;
         allLogs.push(data);
       });
 
@@ -406,7 +445,7 @@
     allLogs.forEach(log => {
       const id = log.userId || log.userEmail;
       if (id && !employeesMap.has(id)) {
-        employeesMap.set(id, log.name || log.userEmail || "غير معروف");
+        employeesMap.set(id, log.name || log.userEmail || "Unknown");
       }
     });
 
@@ -522,11 +561,13 @@
 
     filteredLogs.forEach(log => {
       const tr = document.createElement('tr');
-      const dateStr = log.timestamp ? log.timestamp.toDate().toLocaleDateString('en-US') : (log.date || '-');
-      const isPresent = !log.checkOut;
+      
+      // التواريخ تعرض الآن باللغة الإنجليزية MM/DD/YYYY
+      const dateStr = log.dateObj ? log.dateObj.toLocaleDateString('en-US') : (log.date || '-');
+      const isPresent = !log.checkOut || log.checkOut === '-' || log.checkOut === '';
 
       tr.innerHTML = `
-        <td><strong>${log.name || 'غير معروف'}</strong></td>
+        <td><strong>${log.name || 'Unknown'}</strong></td>
         <td>${log.userEmail || '-'}</td>
         <td>${dateStr}</td>
         <td>${log.checkIn || '-'}</td>
@@ -544,7 +585,7 @@
   // تحديث الإحصائيات
   function updateStats() {
     document.getElementById('statTotal').textContent = filteredLogs.length;
-    const activeCount = filteredLogs.filter(log => !log.checkOut).length;
+    const activeCount = filteredLogs.filter(log => !log.checkOut || log.checkOut === '-' || log.checkOut === '').length;
     document.getElementById('statActive').textContent = activeCount;
   }
 
@@ -559,24 +600,24 @@
     const selectedYear = document.getElementById('yearSelect').value;
 
     let csvContent = "\uFEFF"; 
-    csvContent += "اسم الموظف,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف,الحالة\n";
+    csvContent += "Employee,Email,Date,Check In,Check Out,Status\n";
 
     filteredLogs.forEach(row => {
-      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('en-US') : (row.date || '-');
-      const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
-      const statusStr = row.checkOut ? 'منصرف' : 'حاضر الآن';
+      const dateStr = row.dateObj ? row.dateObj.toLocaleDateString('en-US') : (row.date || '-');
+      const checkOutStr = (row.checkOut && row.checkOut !== '-') ? row.checkOut : 'No Check Out';
+      const statusStr = (row.checkOut && row.checkOut !== '-') ? 'Checked Out' : 'Present';
 
-      csvContent += `"${row.name || 'غير معروف'}","${row.userEmail || '-'}","${dateStr}","${row.checkIn || '-'}","${checkOutStr}","${statusStr}"\n`;
+      csvContent += `"${row.name || 'Unknown'}","${row.userEmail || '-'}","${dateStr}","${row.checkIn || '-'}","${checkOutStr}","${statusStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     
-    let fileName = `تقرير_حضور_${selectedYear}_${selectedMonth}.csv`;
+    let fileName = `Attendance_Report_${selectedYear}_${selectedMonth}.csv`;
     if (selectedUserId !== "ALL") {
-      const empName = filteredLogs[0]?.name || "موظف";
-      fileName = `تقرير_حضور_${empName}_${selectedYear}_${selectedMonth}.csv`;
+      const empName = filteredLogs[0]?.name || "Employee";
+      fileName = `Attendance_${empName}_${selectedYear}_${selectedMonth}.csv`;
     }
 
     link.setAttribute("href", url);
