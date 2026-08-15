@@ -6,7 +6,7 @@
   <title>نظام الحضور والانصراف - تسجيل الدخول</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #f4f6f8; margin: 0; }
-    .card { background: white; padding: 25px; border-radius: 12px; max-width: 550px; margin: 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    .card { background: white; padding: 25px; border-radius: 12px; max-width: 500px; margin: 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
     h2, h3 { color: #333; margin-top: 0; }
     label { font-size: 14px; color: #555; display: block; margin-top: 10px; }
     input, select, button { width: 100%; padding: 12px; margin-top: 6px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
@@ -20,9 +20,9 @@
     .hidden { display: none; }
     ul { margin-top: 15px; padding: 0; list-style: none; }
     li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; line-height: 1.6; }
-    .user-info { background: #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    .user-info-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .user-details { display: flex; gap: 15px; font-size: 13px; color: #444; background: #fff; padding: 8px 12px; border-radius: 6px; border: 1px solid #dee2e6; }
+    .user-info { background: #e9ecef; padding: 12px; border-radius: 6px; margin-bottom: 20px; }
+    .user-info-header { display: flex; justify-content: space-between; align-items: center; }
+    .user-details { font-size: 13px; color: #555; margin-top: 6px; border-top: 1px solid #ccc; padding-top: 6px; }
     .export-box, .manual-entry-box { background: #f1f3f5; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-top: 15px; }
     .flex-row { display: flex; gap: 10px; }
     .flex-row > div { flex: 1; }
@@ -55,11 +55,9 @@
         </div>
         <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 6px 12px; margin: 0; font-size: 12px;">خروج</button>
       </div>
-      
-      <!-- إظهار كود الموظف والوظيفة الثابتة -->
       <div class="user-details">
-        <div><strong>كود الموظف:</strong> <span id="empCodeDisplay">...</span></div>
-        <div><strong>الوظيفة:</strong> <span id="empJobDisplay">...</span></div>
+        <span>كود الموظف: <strong id="empCodeDisplay">-</strong></span> | 
+        <span>الوظيفة: <strong id="empJobDisplay">-</strong></span>
       </div>
     </div>
 
@@ -114,7 +112,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, getDoc, doc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, getDoc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
@@ -130,7 +128,7 @@
   const db = getFirestore(app);
 
   let currentUser = null;
-  let currentProfile = { employeeCode: '', jobTitle: '' };
+  let employeeData = null; // تخزين بيانات الموظف الثابتة
   let userLogs = [];
 
   const monthNames = [
@@ -142,7 +140,7 @@
 
   document.getElementById('entryDate').valueAsDate = new Date();
 
-  onAuthStateChanged(async (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
       if (user.email === ALLOWED_ADMIN_EMAIL) {
         window.location.href = "admin.html";
@@ -153,44 +151,49 @@
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('attendanceSection').classList.remove('hidden');
       
-      const displayName = user.displayName || user.email;
-      document.getElementById('userDisplay').textContent = displayName;
+      // جلب بيانات الموظف الثابتة من مجموعة employees
+      await loadEmployeeProfile();
       
-      // جلب بيانات الموظف الثابتة (الكود والوظيفة)
-      await loadUserProfile();
-      
-      loadLogs();
+      if (employeeData && employeeData.employeeCode) {
+        loadLogs();
+      } else {
+        alert("لم يتم العثور على بيانات الموظف في مستند employees (كود الموظف مفقود).");
+      }
     } else {
       currentUser = null;
+      employeeData = null;
       document.getElementById('authSection').classList.remove('hidden');
       document.getElementById('attendanceSection').classList.add('hidden');
     }
   });
 
-  // جلب أو إنشاء ملف بيانات الموظف الثابتة
-  async function loadUserProfile() {
-    if (!currentUser) return;
+  // جلب بيانات الموظف من مجموعة employees باستعلام البريد أو الـ ID
+  async function loadEmployeeProfile() {
     try {
-      const userDocRef = doc(db, "users", currentUser.uid);
-      const userSnap = await getDoc(userDocRef);
+      // البحث بالبريد الإلكتروني في مجموعة employees
+      const q = query(collection(db, "employees"), where("userEmail", "==", currentUser.email));
+      const querySnapshot = await getDocs(q);
 
-      if (userSnap.exists()) {
-        currentProfile = userSnap.data();
+      if (!querySnapshot.empty) {
+        employeeData = querySnapshot.docs[0].data();
       } else {
-        // في حال عدم وجود ملف شخصي مسبق، يتم إنشاء بيانات افتراضية
-        const defaultCode = "EMP-" + Math.floor(1000 + Math.random() * 9000);
-        const defaultJob = "موظف";
-        currentProfile = {
-          employeeCode: defaultCode,
-          jobTitle: defaultJob,
-          email: currentUser.email,
-          name: currentUser.displayName || currentUser.email.split('@')[0]
-        };
-        await setDoc(userDocRef, currentProfile);
+        // محاولة البحث باسم المستند مباشرة إذا كان معرفاً بالـ email أو UID
+        const docRef = doc(db, "employees", currentUser.email);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          employeeData = docSnap.data();
+        }
       }
 
-      document.getElementById('empCodeDisplay').textContent = currentProfile.employeeCode || 'غير محدد';
-      document.getElementById('empJobDisplay').textContent = currentProfile.jobTitle || 'غير محدد';
+      if (employeeData) {
+        document.getElementById('userDisplay').textContent = employeeData.name || currentUser.email;
+        document.getElementById('empCodeDisplay').textContent = employeeData.employeeCode || "غير محدد";
+        document.getElementById('empJobDisplay').textContent = employeeData.jobTitle || "غير محدد";
+      } else {
+        document.getElementById('userDisplay').textContent = currentUser.email;
+        document.getElementById('empCodeDisplay').textContent = "مفقود";
+        document.getElementById('empJobDisplay').textContent = "مفقود";
+      }
     } catch (e) {
       console.error("خطأ جلب بيانات الموظف:", e);
     }
@@ -227,9 +230,11 @@
     return `${formattedHour}:${minutes} ${ampm}`;
   }
 
-  // 3. حفظ سجل الحضور والانصراف اليدوي مع الكود والوظيفة
+  // 3. حفظ سجل الحضور باستخدام كود الموظف كـ userId
   window.saveAttendanceRecord = async function() {
-    if (!currentUser) return;
+    if (!currentUser || !employeeData || !employeeData.employeeCode) {
+      return alert("تعذر الحفظ: كود الموظف غير متوفر في مستند employees.");
+    }
 
     const dateVal = document.getElementById('entryDate').value;
     const checkInVal = document.getElementById('checkInTime').value;
@@ -239,18 +244,14 @@
     if (!checkInVal) return alert("يرجى إدخال وقت الحضور على الأقل.");
 
     const selectedDate = new Date(dateVal);
-    const employeeName = currentUser.displayName || currentUser.email.split('@')[0];
 
     const checkInFormatted = formatTimeTo12Hour(checkInVal);
     const checkOutFormatted = checkOutVal ? formatTimeTo12Hour(checkOutVal) : null;
 
     try {
+      // حفظ المستند بنظافة: userId يحتوي كود الموظف فقط وبدون name أو userEmail
       await addDoc(collection(db, "attendance"), {
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-        employeeCode: currentProfile.employeeCode || '',
-        jobTitle: currentProfile.jobTitle || '',
-        name: employeeName,
+        userId: employeeData.employeeCode, // كود الموظف
         date: selectedDate.toLocaleDateString('en-US'),
         year: selectedDate.getFullYear(),
         month: selectedDate.getMonth() + 1,
@@ -270,16 +271,17 @@
     }
   };
 
-  // 4. تحميل السجلات
+  // 4. تحميل السجلات باستخدام كود الموظف (userId)
   async function loadLogs() {
-    if (!currentUser) return;
+    if (!employeeData || !employeeData.employeeCode) return;
     const list = document.getElementById('logList');
     list.innerHTML = 'جاري التحميل...';
 
     try {
+      // البحث بـ userId الذى يمثل كود الموظف
       const q = query(
         collection(db, "attendance"), 
-        where("userEmail", "==", currentUser.email)
+        where("userId", "==", employeeData.employeeCode)
       );
       const querySnapshot = await getDocs(q);
       
@@ -385,7 +387,7 @@
     });
   };
 
-  // 5. تصدير التقرير ليشمل كود الموظف والوظيفة
+  // 5. تصدير التقرير (يتم دمج البيانات الثابتة من الموظف مع سجل الحضور)
   window.exportToExcel = function() {
     const selectedMonth = parseInt(document.getElementById('monthSelect').value);
     const selectedYear = parseInt(document.getElementById('yearSelect').value);
@@ -403,19 +405,21 @@
     let csvContent = "\uFEFF"; 
     csvContent += "كود الموظف,الاسم,الوظيفة,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف\n";
 
+    const empCode = employeeData ? employeeData.employeeCode : '';
+    const empName = employeeData ? employeeData.name : '';
+    const empJob = employeeData ? employeeData.jobTitle : '';
+    const empEmail = currentUser ? currentUser.email : '';
+
     filteredLogs.forEach(row => {
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
-      const empCode = row.employeeCode || currentProfile.employeeCode || '';
-      const jobTitle = row.jobTitle || currentProfile.jobTitle || '';
-      csvContent += `"${empCode}","${row.name}","${jobTitle}","${row.userEmail}","${row.formattedDate}","${row.checkIn}","${checkOutStr}"\n`;
+      csvContent += `"${empCode}","${empName}","${empJob}","${empEmail}","${row.formattedDate}","${row.checkIn}","${checkOutStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     
-    const employeeName = currentUser.displayName || currentUser.email.split('@')[0];
-    const fileName = `تقرير_حضور_${employeeName}_${selectedMonth}_${selectedYear}.csv`;
+    const fileName = `تقرير_حضور_${empCode}_${selectedMonth}_${selectedYear}.csv`;
 
     link.setAttribute("href", url);
     link.setAttribute("download", fileName);
