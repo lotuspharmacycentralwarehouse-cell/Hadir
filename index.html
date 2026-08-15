@@ -121,45 +121,46 @@
   ];
   const ALLOWED_ADMIN_EMAIL = "admin@ess.system";
 
-// استرجاع بيانات المستخدم الحالي (مثل البريد المخزن عند تسجيل الدخول)
-const currentUserEmail = localStorage.getItem("userEmail"); // أو من SESSION / Firebase
-
-if (currentUserEmail === ALLOWED_ADMIN_EMAIL) {
-    window.location.href = "admin.html";
-}
-  // متابعة حالة تسجيل الدخول
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      currentUser = user;
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('attendanceSection').classList.remove('hidden');
-      
-      const displayName = user.displayName || user.email;
-      document.getElementById('userDisplay').textContent = displayName;
-      
-      loadLogs();
-    } else {
-      currentUser = null;
-      document.getElementById('authSection').classList.remove('hidden');
-      document.getElementById('attendanceSection').classList.add('hidden');
+// متابعة حالة تسجيل الدخول
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    // 1. التحقق إذا كان المستخدم أدمن وتحويله فوراً
+    if (user.email === ALLOWED_ADMIN_EMAIL) {
+      window.location.href = "admin.html";
+      return; // إيقاف تنفيذ بقية الكود
     }
-  });
 
-  // 1. تسجيل الدخول
-  window.login = async function() {
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value.trim();
+    // 2. إعداد واجهة المستخدم العادي
+    currentUser = user;
+    document.getElementById('authSection').classList.add('hidden');
+    document.getElementById('attendanceSection').classList.remove('hidden');
+    
+    const displayName = user.displayName || user.email;
+    document.getElementById('userDisplay').textContent = displayName;
+    
+    loadLogs();
+  } else {
+    currentUser = null;
+    document.getElementById('authSection').classList.remove('hidden');
+    document.getElementById('attendanceSection').classList.add('hidden');
+  }
+});
 
-    if (!email || !password) return alert('يرجى إدخال البريد الإلكتروني وكلمة المرور');
+// 1. تسجيل الدخول
+window.login = async function() {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value.trim();
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      console.error("خطأ تسجيل الدخول:", error);
-      alert('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
-    }
-  };
+  if (!email || !password) return alert('يرجى إدخال البريد الإلكتروني وكلمة المرور');
 
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+    // بمجرد نجاح تسجيل الدخول، ستعمل دالة onAuthStateChanged تلقائياً وتحول الأدمن
+  } catch (error) {
+    console.error("خطأ تسجيل الدخول:", error);
+    alert('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
+  }
+};
   // 2. تسجيل الخروج
   window.logout = function() {
     signOut(auth);
