@@ -522,7 +522,7 @@
 
     filteredLogs.forEach(log => {
       const tr = document.createElement('tr');
-      const dateStr = log.timestamp ? log.timestamp.toDate().toLocaleDateString('ar-EG') : (log.date || '-');
+      const dateStr = log.timestamp ? log.timestamp.toDate().toLocaleDateString('en-US') : (log.date || '-');
       const isPresent = !log.checkOut;
 
       tr.innerHTML = `
@@ -562,7 +562,7 @@
     csvContent += "اسم الموظف,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف,الحالة\n";
 
     filteredLogs.forEach(row => {
-      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('ar-EG') : (row.date || '-');
+      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('en-US') : (row.date || '-');
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
       const statusStr = row.checkOut ? 'منصرف' : 'حاضر الآن';
 
