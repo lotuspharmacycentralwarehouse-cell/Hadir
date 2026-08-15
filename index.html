@@ -163,10 +163,10 @@
 
     try {
       const q = query(
-        collection(db, "attendance"), 
-        where("userId", "==", currentUser.uid), 
-        where("checkOut", "==", null)
-      );
+  collection(db, "attendance"), 
+  where("userEmail", "==", currentUser.email), 
+  where("checkOut", "==", null)
+);
       const activeSnapshot = await getDocs(q);
 
       if (!activeSnapshot.empty) {
@@ -201,10 +201,10 @@
 
     try {
       const q = query(
-        collection(db, "attendance"), 
-        where("userId", "==", currentUser.uid), 
-        where("checkOut", "==", null)
-      );
+  collection(db, "attendance"), 
+  where("userEmail", "==", currentUser.email), 
+  where("checkOut", "==", null)
+);
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
@@ -226,51 +226,55 @@
   };
 
   // 5. تحميل السجلات واستخراج التواريخ
-  async function loadLogs() {
-    if (!currentUser) return;
-    const list = document.getElementById('logList');
-    list.innerHTML = 'جاري التحميل...';
+  // داخل دالة loadLogs() في الصفحة الأساسية
+async function loadLogs() {
+  if (!currentUser) return;
+  const list = document.getElementById('logList');
+  list.innerHTML = 'جاري التحميل...';
 
-    try {
-      const q = query(collection(db, "attendance"), where("userId", "==", currentUser.uid));
-      const querySnapshot = await getDocs(q);
-      
-      userLogs = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        let dateObj;
+  try {
+    // 💡 التعديل هنا: الاستعلام بالبريد الإلكتروني يضمن جلب بيانات الإكسل والتسجيل المباشر
+    const q = query(
+      collection(db, "attendance"), 
+      where("userEmail", "==", currentUser.email)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    
+    userLogs = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      let dateObj;
 
-        // معالجة التاريخ لضمان التحويل الصحيح بغض النظر عن طريقة الحفظ
-        if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-          dateObj = data.timestamp.toDate();
-        } else if (data.date) {
-          dateObj = new Date(data.date);
-        } else {
-          dateObj = new Date();
-        }
+      if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+        dateObj = data.timestamp.toDate();
+      } else if (data.date) {
+        dateObj = new Date(data.date);
+      } else {
+        dateObj = new Date();
+      }
 
-        data.year = data.year || dateObj.getFullYear();
-        data.month = data.month || (dateObj.getMonth() + 1);
-        data.formattedDate = data.date || dateObj.toLocaleDateString('en-US');
+      data.year = data.year || dateObj.getFullYear();
+      data.month = data.month || (dateObj.getMonth() + 1);
+      data.formattedDate = data.date || dateObj.toLocaleDateString('en-US');
 
-        userLogs.push(data);
-      });
+      userLogs.push(data);
+    });
 
-      // ترتيب السجلات من الأحدث للأقدم
-      userLogs.sort((a, b) => {
-        const timeA = a.timestamp && a.timestamp.toDate ? a.timestamp.toDate().getTime() : 0;
-        const timeB = b.timestamp && b.timestamp.toDate ? b.timestamp.toDate().getTime() : 0;
-        return timeB - timeA;
-      });
+    userLogs.sort((a, b) => {
+      const timeA = a.timestamp && a.timestamp.toDate ? a.timestamp.toDate().getTime() : 0;
+      const timeB = b.timestamp && b.timestamp.toDate ? b.timestamp.toDate().getTime() : 0;
+      return timeB - timeA;
+    });
 
-      renderLogList();
-      populateYearSelector();
+    renderLogList();
+    populateYearSelector();
 
-    } catch (e) {
-      console.error("خطأ تحميل السجلات:", e);
-      list.innerHTML = '<li>حدث خطأ أثناء تحميل السجلات.</li>';
-    }
+  } catch (e) {
+    console.error("خطأ تحميل السجلات:", e);
+    list.innerHTML = '<li>حدث خطأ أثناء تحميل السجلات.</li>';
   }
+}
 
   function renderLogList() {
     const list = document.getElementById('logList');
