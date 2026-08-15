@@ -277,7 +277,7 @@ window.login = async function() {
 
     userLogs.forEach((data) => {
       const li = document.createElement('li');
-      const dateString = data.timestamp ? data.timestamp.toDate().toLocaleDateString('ar-EG') : data.date;
+      const dateString = data.timestamp ? data.timestamp.toDate().toLocaleDateString('en-US') : data.date;
       li.textContent = `التاريخ: ${dateString} | حضور: ${data.checkIn} | انصراف: ${data.checkOut || 'لم يسجل بعد'}`;
       list.appendChild(li);
     });
@@ -353,7 +353,7 @@ window.login = async function() {
     csvContent += "الاسم,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف\n";
 
     filteredLogs.forEach(row => {
-      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('ar-EG') : row.date;
+      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('en-US') : row.date;
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
       csvContent += `"${row.name}","${row.userEmail}","${dateStr}","${row.checkIn}","${checkOutStr}"\n`;
     });
