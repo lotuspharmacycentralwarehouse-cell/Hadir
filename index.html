@@ -21,7 +21,7 @@
     ul { margin-top: 15px; padding: 0; list-style: none; }
     li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; line-height: 1.6; }
     .user-info { background: #e9ecef; padding: 12px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-    .export-box { background: #f1f3f5; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-top: 25px; }
+    .export-box, .manual-entry-box { background: #f1f3f5; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-top: 15px; }
     .flex-row { display: flex; gap: 10px; }
     .flex-row > div { flex: 1; }
   </style>
@@ -53,10 +53,26 @@
       <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 6px 12px; margin: 0; font-size: 12px;">خروج</button>
     </div>
 
-    <h2>تسجيل الحضور والانصراف</h2>
+    <h2>تسجيل الحضور والانصراف اليدوي</h2>
     
-    <button onclick="clockIn()">تسجيل حضور 🟢</button>
-    <button onclick="clockOut()" class="btn-danger">تسجيل انصراف 🔴</button>
+    <!-- صندوق إدخال أوقات الحضور والانصراف يدوياً -->
+    <div class="manual-entry-box">
+      <label for="entryDate">التاريخ:</label>
+      <input type="date" id="entryDate">
+
+      <div class="flex-row">
+        <div>
+          <label for="checkInTime">وقت الحضور 🟢:</label>
+          <input type="time" id="checkInTime">
+        </div>
+        <div>
+          <label for="checkOutTime">وقت الانصراف 🔴:</label>
+          <input type="time" id="checkOutTime">
+        </div>
+      </div>
+
+      <button onclick="saveAttendanceRecord()" class="btn-success">حفظ السجل 💾</button>
+    </div>
 
     <!-- صندوق فلترة وتصدير التقرير الشهري -->
     <div class="export-box">
@@ -88,7 +104,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
@@ -113,7 +129,9 @@
   ];
   const ALLOWED_ADMIN_EMAIL = "admin@ess.system";
 
-  // متابعة حالة تسجيل الدخول
+  // تعيين تاريخ اليوم كقيمة افتراضية لمدخل التاريخ
+  document.getElementById('entryDate').valueAsDate = new Date();
+
   onAuthStateChanged(auth, (user) => {
     if (user) {
       if (user.email === ALLOWED_ADMIN_EMAIL) {
@@ -156,174 +174,126 @@
     signOut(auth);
   };
 
-  // 3. تسجيل الحضور
-  window.clockIn = async function() {
+  // دالة تحويل الوقت من 24-hour إلى صيغة AM/PM (مثل 04:30 PM)
+  function formatTimeTo12Hour(timeStr) {
+    if (!timeStr) return null;
+    const [hours, minutes] = timeStr.split(':');
+    let h = parseInt(hours, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    h = h ? h : 12;
+    const formattedHour = h < 10 ? '0' + h : h;
+    return `${formattedHour}:${minutes} ${ampm}`;
+  }
+
+  // 3. حفظ سجل الحضور والانصراف اليدوي
+  window.saveAttendanceRecord = async function() {
     if (!currentUser) return;
+
+    const dateVal = document.getElementById('entryDate').value;
+    const checkInVal = document.getElementById('checkInTime').value;
+    const checkOutVal = document.getElementById('checkOutTime').value;
+
+    if (!dateVal) return alert("يرجى اختيار التاريخ.");
+    if (!checkInVal) return alert("يرجى إدخال وقت الحضور على الأقل.");
+
+    const selectedDate = new Date(dateVal);
     const employeeName = currentUser.displayName || currentUser.email.split('@')[0];
 
+    const checkInFormatted = formatTimeTo12Hour(checkInVal);
+    const checkOutFormatted = checkOutVal ? formatTimeTo12Hour(checkOutVal) : null;
+
     try {
-      const q = query(
-  collection(db, "attendance"), 
-  where("userEmail", "==", currentUser.email), 
-  where("checkOut", "==", null)
-);
-      const activeSnapshot = await getDocs(q);
-
-      if (!activeSnapshot.empty) {
-        return alert("أنت مسجل حضور بالفعل! يجب تسجيل الانصراف أولاً.");
-      }
-
-      const now = new Date();
       await addDoc(collection(db, "attendance"), {
         userId: currentUser.uid,
         userEmail: currentUser.email,
         name: employeeName,
-        date: now.toLocaleDateString('en-US'),
-        year: now.getFullYear(),
-        month: now.getMonth() + 1,
-        day: now.getDate(),
-        checkIn: now.toLocaleTimeString('en-US'),
-        checkOut: null,
-        timestamp: now
+        date: selectedDate.toLocaleDateString('en-US'),
+        year: selectedDate.getFullYear(),
+        month: selectedDate.getMonth() + 1,
+        day: selectedDate.getDate(),
+        checkIn: checkInFormatted,
+        checkOut: checkOutFormatted,
+        timestamp: selectedDate
       });
 
-      alert(`تم تسجيل حضورك بنجاح!`);
+      alert("تم حفظ السجل بنجاح!");
+      document.getElementById('checkInTime').value = '';
+      document.getElementById('checkOutTime').value = '';
       loadLogs();
     } catch (e) {
       console.error("خطأ الحفظ:", e);
-      alert("حدث خطأ أثناء تسجيل الحضور.");
+      alert("حدث خطأ أثناء حفظ السجل.");
     }
   };
 
-  // 4. تسجيل الانصراف
-  window.clockOut = async function() {
+  // 4. تحميل السجلات
+  async function loadLogs() {
     if (!currentUser) return;
+    const list = document.getElementById('logList');
+    list.innerHTML = 'جاري التحميل...';
 
     try {
       const q = query(
-  collection(db, "attendance"), 
-  where("userEmail", "==", currentUser.email), 
-  where("checkOut", "==", null)
-);
+        collection(db, "attendance"), 
+        where("userEmail", "==", currentUser.email)
+      );
       const querySnapshot = await getDocs(q);
+      
+      userLogs = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        let dateObj;
 
-      if (querySnapshot.empty) {
-        return alert("لم يتم العثور على تسجيل حضور نشط لك!");
-      }
+        if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+          dateObj = data.timestamp.toDate();
+        } else if (data.timestamp && data.timestamp.seconds) {
+          dateObj = new Date(data.timestamp.seconds * 1000);
+        } else if (data.date) {
+          dateObj = new Date(data.date);
+        } else {
+          dateObj = new Date();
+        }
 
-      const now = new Date();
-      const docToUpdate = querySnapshot.docs[0];
-      await updateDoc(doc(db, "attendance", docToUpdate.id), {
-        checkOut: now.toLocaleTimeString('en-US')
+        data.year = data.year || dateObj.getFullYear();
+        data.month = data.month || (dateObj.getMonth() + 1);
+        data.formattedDate = (dateObj && !isNaN(dateObj.getTime())) 
+          ? dateObj.toLocaleDateString('en-US') 
+          : (data.date || 'تاريخ غير محدد');
+
+        userLogs.push(data);
       });
 
-      alert("تم تسجيل انصرافك بنجاح!");
-      loadLogs();
+      userLogs.sort((a, b) => {
+        const timeA = a.timestamp && a.timestamp.toDate ? a.timestamp.toDate().getTime() : (a.timestamp && a.timestamp.seconds ? a.timestamp.seconds * 1000 : 0);
+        const timeB = b.timestamp && b.timestamp.toDate ? b.timestamp.toDate().getTime() : (b.timestamp && b.timestamp.seconds ? b.timestamp.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
+
+      renderLogList();
+      populateYearSelector();
+
     } catch (e) {
-      console.error("خطأ التحديث:", e);
-      alert("حدث خطأ أثناء تسجيل الانصراف.");
+      console.error("خطأ تحميل السجلات:", e);
+      list.innerHTML = '<li>حدث خطأ أثناء تحميل السجلات.</li>';
     }
-  };
+  }
 
-  // 5. تحميل السجلات واستخراج التواريخ
-  // داخل دالة loadLogs() في الصفحة الأساسية
-async function loadLogs() {
-  if (!currentUser) return;
-  const list = document.getElementById('logList');
-  list.innerHTML = 'جاري التحميل...';
+  function renderLogList() {
+    const list = document.getElementById('logList');
+    list.innerHTML = '';
 
-  try {
-    // 💡 التعديل هنا: الاستعلام بالبريد الإلكتروني يضمن جلب بيانات الإكسل والتسجيل المباشر
-    const q = query(
-      collection(db, "attendance"), 
-      where("userEmail", "==", currentUser.email)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    userLogs = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      let dateObj;
+    if (userLogs.length === 0) {
+      list.innerHTML = '<li>لا توجد سجلات سابقة لك.</li>';
+      return;
+    }
 
-      if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-        dateObj = data.timestamp.toDate();
-      } else if (data.date) {
-        dateObj = new Date(data.date);
-      } else {
-        dateObj = new Date();
-      }
-
-      data.year = data.year || dateObj.getFullYear();
-      data.month = data.month || (dateObj.getMonth() + 1);
-      data.formattedDate = data.date || dateObj.toLocaleDateString('en-US');
-
-      userLogs.push(data);
+    userLogs.forEach((data) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>التاريخ:</strong> ${data.formattedDate} | <strong>حضور:</strong> ${data.checkIn} | <strong>انصراف:</strong> ${data.checkOut || '<span style="color:#dc3545;">لم يسجل بعد</span>'}`;
+      list.appendChild(li);
     });
-
-    userLogs.sort((a, b) => {
-      const timeA = a.timestamp && a.timestamp.toDate ? a.timestamp.toDate().getTime() : 0;
-      const timeB = b.timestamp && b.timestamp.toDate ? b.timestamp.toDate().getTime() : 0;
-      return timeB - timeA;
-    });
-
-    renderLogList();
-    populateYearSelector();
-
-  } catch (e) {
-    console.error("خطأ تحميل السجلات:", e);
-    list.innerHTML = '<li>حدث خطأ أثناء تحميل السجلات.</li>';
   }
-}
-
-  // 1. معالجة وتنسيق كائن التاريخ
-function formatDate(data) {
-  let dateObj = null;
-
-  // إذا كان التاريخ كائن Timestamp من Firestore
-  if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-    dateObj = data.timestamp.toDate();
-  } 
-  // إذا كان التاريخ مجرد ثوانٍ وثوانٍ نانوية مفككة
-  else if (data.timestamp && data.timestamp.seconds) {
-    dateObj = new Date(data.timestamp.seconds * 1000);
-  }
-  // إذا كان التاريخ مخزناً كـ Date أو String
-  else if (data.date) {
-    dateObj = new Date(data.date);
-  }
-
-  // إذا نجح التحويل إلى تاريخ صحيح، يتم تنسيقه
-  if (dateObj && !isNaN(dateObj.getTime())) {
-    return dateObj.toLocaleDateString('ar-EG', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }); // أو استخدم 'en-US' للتاريخ بالإنجليزية (MM/DD/YYYY)
-  }
-
-  // في حال تعذر التحويل، إرجاع النص الأصلي المتاح
-  return data.date || 'تاريخ غير محدد';
-}
-
-// 2. عرض القائمة
-function renderLogList() {
-  const list = document.getElementById('logList');
-  list.innerHTML = '';
-
-  if (userLogs.length === 0) {
-    list.innerHTML = '<li>لا توجد سجلات سابقة لك.</li>';
-    return;
-  }
-
-  userLogs.forEach((data) => {
-    const li = document.createElement('li');
-    const formattedDate = formatDate(data);
-    
-    li.innerHTML = `<strong>التاريخ:</strong> ${formattedDate} | <strong>حضور:</strong> ${data.checkIn} | <strong>انصراف:</strong> ${data.checkOut || '<span style="color:#dc3545;">لم يسجل بعد</span>'}`;
-    list.appendChild(li);
-  });
-}
 
   function populateYearSelector() {
     const yearSelect = document.getElementById('yearSelect');
@@ -345,7 +315,6 @@ function renderLogList() {
     window.updateMonthSelector();
   }
 
-  // ربط الدالة بـ window لإتاحة استخدامها في حدث onchange الخاص بالعنصر select
   window.updateMonthSelector = function() {
     const yearSelect = document.getElementById('yearSelect');
     const monthSelect = document.getElementById('monthSelect');
@@ -373,7 +342,7 @@ function renderLogList() {
     });
   };
 
-  // 6. تصدير التقرير
+  // 5. تصدير التقرير
   window.exportToExcel = function() {
     const selectedMonth = parseInt(document.getElementById('monthSelect').value);
     const selectedYear = parseInt(document.getElementById('yearSelect').value);
