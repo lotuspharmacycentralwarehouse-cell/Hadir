@@ -25,6 +25,26 @@
     th { background: #e9ecef; color: #495057; }
     tr:hover { background: #f8f9fa; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    
+    /* صندوق كلمة المرور المنشأة */
+    .credentials-box {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+    .cred-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px dashed #28a745;
+    }
   </style>
 </head>
 <body>
@@ -38,7 +58,7 @@
 
   <!-- 1. قسم إضافة / تعديل موظف -->
   <div class="card">
-    <h3>👤 إدارة الموظفين (مجموعة employees)</h3>
+    <h3>👤 إنشاء حساب موظف جديد (مجموعة employees)</h3>
     <form id="employeeForm">
       <div class="grid-2">
         <div>
@@ -62,8 +82,20 @@
         </div>
       </div>
 
-      <button type="button" onclick="saveEmployee()" class="btn-success">حفظ الموظف 💾</button>
+      <button type="button" onclick="createEmployeeAccount()" class="btn-success">إنشاء وحفظ الموظف 💾</button>
     </form>
+
+    <!-- صندوق نتيجة إنشاء الحساب وكلمة المرور -->
+    <div id="credentialsResult" class="credentials-box hidden">
+      <strong>✅ تم إنشاء حساب الموظف بنجاح!</strong>
+      <div class="cred-row">
+        <span>البريد الإلكتروني: <strong id="createdEmail"></strong></span>
+      </div>
+      <div class="cred-row">
+        <span>كلمة المرور المؤقتة: <strong id="createdPassword" style="font-size: 16px; color: #d9534f;"></strong></span>
+        <button onclick="copyPassword()" class="btn-secondary" style="width: auto; padding: 4px 10px; margin: 0; font-size: 12px;">📋 نسخ كلمة المرور</button>
+      </div>
+    </div>
   </div>
 
   <!-- 2. قسم تصدير التقارير الشهرية -->
@@ -117,9 +149,9 @@
 
 <!-- استدعاء خدمات Firebase -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, setDoc, doc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { initializeApp, initializeServerApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { getFirestore, collection, setDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
@@ -135,7 +167,7 @@
   const db = getFirestore(app);
 
   const ALLOWED_ADMIN_EMAIL = "admin@ess.system";
-  let employeesMap = {}; // خريطة لتخزين بيانات الموظفين باستخدام كود الموظف كمفتاح
+  let employeesMap = {}; 
   let allAttendanceLogs = [];
 
   const monthNames = [
@@ -154,7 +186,71 @@
     }
   });
 
-  // 1. جلب بيانات الموظفين الثابتة من مجموعة employees
+  // توليد كلمة مرور تبدأ بـ ess# يتبعها 6 أرقام عشوائية
+  function generateRandomPassword() {
+    const randomNumbers = Math.floor(100000 + Math.random() * 900000); // 6 أرقام
+    return `ess#${randomNumbers}`;
+  }
+
+  // 1. إنشاء حساب الموظف في Auth وحفظ بياناته في Firestore
+  window.createEmployeeAccount = async function() {
+    const code = document.getElementById('empCode').value.trim();
+    const name = document.getElementById('empName').value.trim();
+    const job = document.getElementById('empJob').value.trim();
+    const email = document.getElementById('empEmail').value.trim().toLowerCase();
+
+    if (!code || !name || !job || !email) {
+      return alert("يرجى ملء جميع البيانات: الكود، الاسم، الوظيفة، والبريد الإلكتروني.");
+    }
+
+    const generatedPassword = generateRandomPassword();
+
+    try {
+      // 1. إنشاء تطبيق ثانوي لمنع تسجيل خروج الأدمن الحالي عند إنشاء حساب جديد
+      const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+      const secondaryAuth = getAuth(secondaryApp);
+
+      // 2. إنشاء الحساب في Firebase Auth
+      await createUserWithEmailAndPassword(secondaryAuth, email, generatedPassword);
+
+      // 3. حفظ بيانات الموظف الثابتة في Firestore مستند employees
+      await setDoc(doc(db, "employees", code), {
+        employeeCode: code,
+        name: name,
+        jobTitle: job,
+        userEmail: email
+      });
+
+      // إظهار النتيجة للأدمن لنسخ كلمة المرور
+      document.getElementById('createdEmail').textContent = email;
+      document.getElementById('createdPassword').textContent = generatedPassword;
+      document.getElementById('credentialsResult').classList.remove('hidden');
+
+      alert(`تم إنشاء حساب الموظف ${name} بنجاح!`);
+      document.getElementById('employeeForm').reset();
+      await loadEmployees();
+
+    } catch (e) {
+      console.error("خطأ إنشاء الحساب:", e);
+      if (e.code === 'auth/email-already-in-use') {
+        alert("هذا البريد الإلكتروني مستخدم بالفعل.");
+      } else {
+        alert("حدث خطأ أثناء إنشاء الحساب: " + e.message);
+      }
+    }
+  };
+
+  // نسخ كلمة المرور إلى الحافظة
+  window.copyPassword = function() {
+    const pwd = document.getElementById('createdPassword').textContent;
+    navigator.clipboard.writeText(pwd).then(() => {
+      alert("تم نسخ كلمة المرور إلى الحافظة!");
+    }).catch(err => {
+      alert("تعذر النسخ تلقائياً، يمكنك نسخها يدوياً: " + pwd);
+    });
+  };
+
+  // 2. جلب بيانات الموظفين
   async function loadEmployees() {
     try {
       const querySnapshot = await getDocs(collection(db, "employees"));
@@ -178,35 +274,6 @@
     }
   }
 
-  // 2. إضافة أو تحديث موظف في مجموعة employees
-  window.saveEmployee = async function() {
-    const code = document.getElementById('empCode').value.trim();
-    const name = document.getElementById('empName').value.trim();
-    const job = document.getElementById('empJob').value.trim();
-    const email = document.getElementById('empEmail').value.trim().toLowerCase();
-
-    if (!code || !name || !job || !email) {
-      return alert("يرجى ملء جميع البيانات: الكود، الاسم، الوظيفة، والبريد الإلكتروني.");
-    }
-
-    try {
-      // حفظ الموظف باستخدام كود الموظف كـ ID للمستند في مجموعة employees
-      await setDoc(doc(db, "employees", code), {
-        employeeCode: code,
-        name: name,
-        jobTitle: job,
-        userEmail: email
-      });
-
-      alert(`تم حفظ الموظف ${name} (كود: ${code}) بنجاح!`);
-      document.getElementById('employeeForm').reset();
-      await loadEmployees(); // إعادة تحميل القائمة
-    } catch (e) {
-      console.error("خطأ حفظ الموظف:", e);
-      alert("حدث خطأ أثناء حفظ بيانات الموظف.");
-    }
-  };
-
   // 3. تحميل جميع سجلات الحضور
   async function loadAllAttendance() {
     try {
@@ -218,7 +285,6 @@
         allAttendanceLogs.push(data);
       });
 
-      // ترتيب السجلات حسب الوقت
       allAttendanceLogs.sort((a, b) => {
         const timeA = a.timestamp && a.timestamp.seconds ? a.timestamp.seconds : 0;
         const timeB = b.timestamp && b.timestamp.seconds ? b.timestamp.seconds : 0;
@@ -231,7 +297,7 @@
     }
   }
 
-  // 4. عرض الجدول بالربط بين attendance (userId = employeeCode) و employees
+  // 4. عرض جدول الحضور
   function renderTable() {
     const tbody = document.getElementById('attendanceTableBody');
     tbody.innerHTML = '';
@@ -242,7 +308,6 @@
     }
 
     allAttendanceLogs.forEach(log => {
-      // جلب البيانات الثابتة للموظف عبر userId (والذي يمثل كود الموظف)
       const empCode = log.userId || '-';
       const empInfo = employeesMap[empCode] || {};
       
