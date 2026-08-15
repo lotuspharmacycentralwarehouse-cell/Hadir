@@ -26,7 +26,6 @@
     tr:hover { background: #f8f9fa; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     
-    /* صندوق كلمة المرور المنشأة */
     .credentials-box {
       background-color: #d4edda;
       border: 1px solid #c3e6cb;
@@ -45,7 +44,17 @@
       border-radius: 6px;
       border: 1px dashed #28a745;
     }
+    .upload-area {
+      border: 2px dashed #007bff;
+      padding: 20px;
+      border-radius: 8px;
+      background: #f8f9fa;
+      text-align: center;
+      margin-top: 10px;
+    }
   </style>
+  <!-- مكتبة قراءة ملفات Excel (PapaParse للـ CSV و SheetJS لـ Excel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -58,7 +67,7 @@
 
   <!-- 1. قسم إضافة / تعديل موظف -->
   <div class="card">
-    <h3>👤 إنشاء حساب موظف جديد (مجموعة employees)</h3>
+    <h3>👤 إنشاء حساب موظف جديد</h3>
     <form id="employeeForm">
       <div class="grid-2">
         <div>
@@ -85,7 +94,6 @@
       <button type="button" onclick="createEmployeeAccount()" class="btn-success">إنشاء وحفظ الموظف 💾</button>
     </form>
 
-    <!-- صندوق نتيجة إنشاء الحساب وكلمة المرور -->
     <div id="credentialsResult" class="credentials-box hidden">
       <strong>✅ تم إنشاء حساب الموظف بنجاح!</strong>
       <div class="cred-row">
@@ -98,7 +106,18 @@
     </div>
   </div>
 
-  <!-- 2. قسم تصدير التقارير الشهرية -->
+  <!-- 2. قسم رفع سجلات الحضور والانصراف من ملف -->
+  <div class="card">
+    <h3>📤 رفع سجل الحضور والانصراف (ملف Excel أو CSV)</h3>
+    <p style="font-size: 13px; color: #666;">يجب أن يحتوي الملف على الأعمدة التالية: <strong>كود الموظف (أو userId)، التاريخ (YYYY-MM-DD)، الحضور (checkIn)، الانصراف (checkOut)</strong>.</p>
+    
+    <div class="upload-area">
+      <input type="file" id="attendanceFile" accept=".csv, .xlsx, .xls">
+      <button onclick="uploadAttendanceFile()" class="btn-success" style="max-width: 250px; margin-top: 15px;">رفع البيانات إلى النظام 🚀</button>
+    </div>
+  </div>
+
+  <!-- 3. قسم تصدير التقارير الشهرية -->
   <div class="card">
     <h3>📊 تصدير تقارير الحضور والإكسل</h3>
     <div class="grid-2">
@@ -125,7 +144,7 @@
     </div>
   </div>
 
-  <!-- 3. قسم عرض سجلات الحضور الشاملة -->
+  <!-- 4. قسم عرض سجلات الحضور الشاملة -->
   <div class="card">
     <h3>📋 سجلات الحضور والانصراف المسجلة</h3>
     <table>
@@ -186,13 +205,12 @@
     }
   });
 
-  // توليد كلمة مرور تبدأ بـ ess# يتبعها 6 أرقام عشوائية
   function generateRandomPassword() {
-    const randomNumbers = Math.floor(100000 + Math.random() * 900000); // 6 أرقام
+    const randomNumbers = Math.floor(100000 + Math.random() * 900000);
     return `ess#${randomNumbers}`;
   }
 
-  // 1. إنشاء حساب الموظف في Auth وحفظ بياناته في Firestore
+  // 1. إنشاء حساب الموظف
   window.createEmployeeAccount = async function() {
     const code = document.getElementById('empCode').value.trim();
     const name = document.getElementById('empName').value.trim();
@@ -206,14 +224,11 @@
     const generatedPassword = generateRandomPassword();
 
     try {
-      // 1. إنشاء تطبيق ثانوي لمنع تسجيل خروج الأدمن الحالي عند إنشاء حساب جديد
       const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
       const secondaryAuth = getAuth(secondaryApp);
 
-      // 2. إنشاء الحساب في Firebase Auth
       await createUserWithEmailAndPassword(secondaryAuth, email, generatedPassword);
 
-      // 3. حفظ بيانات الموظف الثابتة في Firestore مستند employees
       await setDoc(doc(db, "employees", code), {
         employeeCode: code,
         name: name,
@@ -221,7 +236,6 @@
         userEmail: email
       });
 
-      // إظهار النتيجة للأدمن لنسخ كلمة المرور
       document.getElementById('createdEmail').textContent = email;
       document.getElementById('createdPassword').textContent = generatedPassword;
       document.getElementById('credentialsResult').classList.remove('hidden');
@@ -240,7 +254,6 @@
     }
   };
 
-  // نسخ كلمة المرور إلى الحافظة
   window.copyPassword = function() {
     const pwd = document.getElementById('createdPassword').textContent;
     navigator.clipboard.writeText(pwd).then(() => {
@@ -250,7 +263,79 @@
     });
   };
 
-  // 2. جلب بيانات الموظفين
+  // 2. رفع سجلات الحضور والانصراف من Excel / CSV
+  window.uploadAttendanceFile = async function() {
+    const fileInput = document.getElementById('attendanceFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+      return alert("يرجى اختيار ملف Excel أو CSV للرفع.");
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = async function(e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const jsonRows = XLSX.utils.sheet_to_json(worksheet);
+
+        if (jsonRows.length === 0) {
+          return alert("الملف فارغ أو صيغته غير صحيحة.");
+        }
+
+        let successCount = 0;
+
+        for (const row of jsonRows) {
+          // استخراج الحقول بغض النظر عن اختلاف المسميات بالأجزاء (عربي / إنكليزي)
+          const userId = (row['كود الموظف'] || row['userId'] || row['Code'] || '').toString().trim();
+          const dateStr = (row['التاريخ'] || row['date'] || row['Date'] || '').toString().trim();
+          const checkIn = (row['التاكيد'] || row['الحضور'] || row['checkIn'] || row['CheckIn'] || '').toString().trim();
+          const checkOut = (row['الانصراف'] || row['checkOut'] || row['CheckOut'] || '').toString().trim();
+
+          if (userId && dateStr) {
+            const dateParts = dateStr.split('-');
+            let year = new Date().getFullYear();
+            let month = new Date().getMonth() + 1;
+
+            if (dateParts.length >= 2) {
+              year = parseInt(dateParts[0]);
+              month = parseInt(dateParts[1]);
+            }
+
+            // معرف المستند الفريد لمنع تكرار نفس اليوم للموظف
+            const docId = `${userId}_${dateStr}`;
+
+            await setDoc(doc(db, "attendance", docId), {
+              userId: userId,
+              date: dateStr,
+              checkIn: checkIn || '-',
+              checkOut: checkOut || '-',
+              year: year,
+              month: month,
+              timestamp: new Date()
+            }, { merge: true });
+
+            successCount++;
+          }
+        }
+
+        alert(`تم رفع ${successCount} سجل بنجاح!`);
+        fileInput.value = '';
+        await loadAllAttendance();
+
+      } catch (err) {
+        console.error("خطأ معالجة الملف:", err);
+        alert("حدث خطأ أثناء قراءة الملف. يرجى التأكد من التنسيق الصحيح.");
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  // 3. جلب بيانات الموظفين
   async function loadEmployees() {
     try {
       const querySnapshot = await getDocs(collection(db, "employees"));
@@ -274,7 +359,7 @@
     }
   }
 
-  // 3. تحميل جميع سجلات الحضور
+  // 4. تحميل جميع سجلات الحضور
   async function loadAllAttendance() {
     try {
       const querySnapshot = await getDocs(collection(db, "attendance"));
@@ -297,7 +382,7 @@
     }
   }
 
-  // 4. عرض جدول الحضور
+  // 5. عرض جدول الحضور
   function renderTable() {
     const tbody = document.getElementById('attendanceTableBody');
     tbody.innerHTML = '';
@@ -324,7 +409,7 @@
     });
   }
 
-  // 5. إعداد خيارات السنة والشهر
+  // 6. إعداد خيارات السنة والشهر
   function setupDateSelectors() {
     const yearSelect = document.getElementById('filterYear');
     const monthSelect = document.getElementById('filterMonth');
@@ -348,7 +433,7 @@
     });
   }
 
-  // 6. تصدير التقرير الشهري
+  // 7. تصدير التقرير الشهري
   window.exportReport = function() {
     const selectedEmpCode = document.getElementById('filterEmployee').value;
     const selectedYear = parseInt(document.getElementById('filterYear').value);
