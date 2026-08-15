@@ -19,7 +19,7 @@
     .btn-secondary { background: #6c757d; }
     .hidden { display: none; }
     ul { margin-top: 15px; padding: 0; list-style: none; }
-    li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; }
+    li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; line-height: 1.6; }
     .user-info { background: #e9ecef; padding: 12px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
     .export-box { background: #f1f3f5; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-top: 25px; }
     .flex-row { display: flex; gap: 10px; }
@@ -90,20 +90,13 @@
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
   import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // 🔴 ضع بيانات مشروعك الخاصة هنا
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
-
     authDomain: "hadir-c203e.firebaseapp.com",
-
     projectId: "hadir-c203e",
-
     storageBucket: "hadir-c203e.firebasestorage.app",
-
     messagingSenderId: "510890207479",
-
     appId: "1:510890207479:web:7f710f815631b4c8f80bf2"
-
   };
 
   const app = initializeApp(firebaseConfig);
@@ -113,7 +106,6 @@
   let currentUser = null;
   let userLogs = [];
 
-  // أسماء الشهور بالعربية للتحويل من الأرقام
   const monthNames = [
     "يناير (1)", "فبراير (2)", "مارس (3)", "أبريل (4)", 
     "مايو (5)", "يونيو (6)", "يوليو (7)", "أغسطس (8)", 
@@ -121,46 +113,44 @@
   ];
   const ALLOWED_ADMIN_EMAIL = "admin@ess.system";
 
-// متابعة حالة تسجيل الدخول
-onAuthStateChanged(auth, (user) => {
-  if (user) {
-    // 1. التحقق إذا كان المستخدم أدمن وتحويله فوراً
-    if (user.email === ALLOWED_ADMIN_EMAIL) {
-      window.location.href = "admin.html";
-      return; // إيقاف تنفيذ بقية الكود
+  // متابعة حالة تسجيل الدخول
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      if (user.email === ALLOWED_ADMIN_EMAIL) {
+        window.location.href = "admin.html";
+        return;
+      }
+
+      currentUser = user;
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('attendanceSection').classList.remove('hidden');
+      
+      const displayName = user.displayName || user.email;
+      document.getElementById('userDisplay').textContent = displayName;
+      
+      loadLogs();
+    } else {
+      currentUser = null;
+      document.getElementById('authSection').classList.remove('hidden');
+      document.getElementById('attendanceSection').classList.add('hidden');
     }
+  });
 
-    // 2. إعداد واجهة المستخدم العادي
-    currentUser = user;
-    document.getElementById('authSection').classList.add('hidden');
-    document.getElementById('attendanceSection').classList.remove('hidden');
-    
-    const displayName = user.displayName || user.email;
-    document.getElementById('userDisplay').textContent = displayName;
-    
-    loadLogs();
-  } else {
-    currentUser = null;
-    document.getElementById('authSection').classList.remove('hidden');
-    document.getElementById('attendanceSection').classList.add('hidden');
-  }
-});
+  // 1. تسجيل الدخول
+  window.login = async function() {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value.trim();
 
-// 1. تسجيل الدخول
-window.login = async function() {
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value.trim();
+    if (!email || !password) return alert('يرجى إدخال البريد الإلكتروني وكلمة المرور');
 
-  if (!email || !password) return alert('يرجى إدخال البريد الإلكتروني وكلمة المرور');
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      console.error("خطأ تسجيل الدخول:", error);
+      alert('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
+    }
+  };
 
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-    // بمجرد نجاح تسجيل الدخول، ستعمل دالة onAuthStateChanged تلقائياً وتحول الأدمن
-  } catch (error) {
-    console.error("خطأ تسجيل الدخول:", error);
-    alert('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
-  }
-};
   // 2. تسجيل الخروج
   window.logout = function() {
     signOut(auth);
@@ -235,7 +225,7 @@ window.login = async function() {
     }
   };
 
-  // 5. تحميل السجلات وإعداد قائمة السنوات والشهور المسجلة ديناميكياً
+  // 5. تحميل السجلات واستخراج التواريخ
   async function loadLogs() {
     if (!currentUser) return;
     const list = document.getElementById('logList');
@@ -248,14 +238,30 @@ window.login = async function() {
       userLogs = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        let dateObj = data.timestamp ? data.timestamp.toDate() : new Date(data.date);
+        let dateObj;
+
+        // معالجة التاريخ لضمان التحويل الصحيح بغض النظر عن طريقة الحفظ
+        if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+          dateObj = data.timestamp.toDate();
+        } else if (data.date) {
+          dateObj = new Date(data.date);
+        } else {
+          dateObj = new Date();
+        }
+
         data.year = data.year || dateObj.getFullYear();
         data.month = data.month || (dateObj.getMonth() + 1);
+        data.formattedDate = data.date || dateObj.toLocaleDateString('en-US');
 
         userLogs.push(data);
       });
 
-      userLogs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      // ترتيب السجلات من الأحدث للأقدم
+      userLogs.sort((a, b) => {
+        const timeA = a.timestamp && a.timestamp.toDate ? a.timestamp.toDate().getTime() : 0;
+        const timeB = b.timestamp && b.timestamp.toDate ? b.timestamp.toDate().getTime() : 0;
+        return timeB - timeA;
+      });
 
       renderLogList();
       populateYearSelector();
@@ -277,13 +283,11 @@ window.login = async function() {
 
     userLogs.forEach((data) => {
       const li = document.createElement('li');
-      const dateString = data.timestamp ? data.timestamp.toDate().toLocaleDateString('en-US') : data.date;
-      li.textContent = `التاريخ: ${dateString} | حضور: ${data.checkIn} | انصراف: ${data.checkOut || 'لم يسجل بعد'}`;
+      li.innerHTML = `<strong>التاريخ:</strong> ${data.formattedDate} | <strong>حضور:</strong> ${data.checkIn} | <strong>انصراف:</strong> ${data.checkOut || '<span style="color:#dc3545;">لم يسجل بعد</span>'}`;
       list.appendChild(li);
     });
   }
 
-  // تعبئة قائمة السنوات المتاحة بالسيستم
   function populateYearSelector() {
     const yearSelect = document.getElementById('yearSelect');
     const currentYear = new Date().getFullYear();
@@ -301,17 +305,15 @@ window.login = async function() {
       yearSelect.appendChild(opt);
     });
 
-    // تحديث الشهور بناءً على السنة المختارة أول مرة
-    updateMonthSelector();
+    window.updateMonthSelector();
   }
 
-  // تعبئة الشهور المتاحة ديناميكياً للسنة المختارة فقط
+  // ربط الدالة بـ window لإتاحة استخدامها في حدث onchange الخاص بالعنصر select
   window.updateMonthSelector = function() {
     const yearSelect = document.getElementById('yearSelect');
     const monthSelect = document.getElementById('monthSelect');
     const selectedYear = parseInt(yearSelect.value);
 
-    // استخراج الشهور المسجلة في السنة المختارة
     const logsInYear = userLogs.filter(log => log.year === selectedYear);
     const availableMonths = [...new Set(logsInYear.map(log => log.month))];
     availableMonths.sort((a, b) => a - b);
@@ -329,7 +331,7 @@ window.login = async function() {
     availableMonths.forEach(m => {
       const opt = document.createElement('option');
       opt.value = m;
-      opt.textContent = monthNames[m - 1]; // استدعاء اسم الشهر
+      opt.textContent = monthNames[m - 1];
       monthSelect.appendChild(opt);
     });
   };
@@ -353,9 +355,8 @@ window.login = async function() {
     csvContent += "الاسم,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف\n";
 
     filteredLogs.forEach(row => {
-      const dateStr = row.timestamp ? row.timestamp.toDate().toLocaleDateString('en-US') : row.date;
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
-      csvContent += `"${row.name}","${row.userEmail}","${dateStr}","${row.checkIn}","${checkOutStr}"\n`;
+      csvContent += `"${row.name}","${row.userEmail}","${row.formattedDate}","${row.checkIn}","${checkOutStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
