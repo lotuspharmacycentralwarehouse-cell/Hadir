@@ -204,27 +204,34 @@
     "September (9)", "October (10)", "November (11)", "December (12)"
   ];
 
-  // دالة مساعدة لتحليل صيغة DD/MM/YYYY إلى كائن Date ممتاز
+  // 🛠️ دالة مساعدة معالجة ومحسّنة لتحليل التاريخ بشكل دقيق
   function parseDateString(dateStr) {
     if (!dateStr) return new Date();
-    if (dateStr instanceof Date) return dateStr;
+    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? new Date() : dateStr;
     
     const str = String(dateStr).trim();
+
     if (str.includes('/')) {
       const parts = str.split('/');
       if (parts.length === 3) {
-        const day = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        const year = parseInt(parts[2], 10);
-        return new Date(year, month, day);
+        let p1 = parseInt(parts[0], 10);
+        let p2 = parseInt(parts[1], 10);
+        let year = parseInt(parts[2], 10);
+
+        // التعامل الذكي مع صيغ MM/DD/YYYY و DD/MM/YYYY
+        if (p1 > 12) {
+          return new Date(year, p2 - 1, p1); // DD/MM/YYYY
+        } else {
+          return new Date(year, p1 - 1, p2); // MM/DD/YYYY
+        }
       }
     } else if (str.includes('-')) {
       const parts = str.split('-');
       if (parts.length === 3) {
         if (parts[0].length === 4) { // YYYY-MM-DD
-          return new Date(parts[0], parseInt(parts[1], 10) - 1, parts[2]);
+          return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
         } else { // DD-MM-YYYY
-          return new Date(parts[2], parseInt(parts[1], 10) - 1, parts[0]);
+          return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
         }
       }
     }
@@ -233,9 +240,15 @@
     return isNaN(parsed.getTime()) ? new Date() : parsed;
   }
 
-  // دالة تحويل أرقام الوقت العشرية إلى AM/PM
+  // 🛠️ دالة تحويل أوقات Excel الملتفة إلى وقت نظيف بصيغة AM/PM
   function parseTimeString(val) {
     if (val === undefined || val === null || val === '') return '';
+
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return '';
+      return val.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
     if (typeof val === 'number') {
       const totalSeconds = Math.round(val * 24 * 3600);
       const hours = Math.floor(totalSeconds / 3600);
@@ -245,7 +258,29 @@
       const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
       return `${formattedHours}:${formattedMinutes} ${period}`;
     }
-    return String(val).trim();
+
+    let strVal = String(val).trim();
+
+    if (strVal.includes('1899') || strVal.includes('GMT') || strVal.includes('Sat') || strVal.includes('Sun')) {
+      const d = new Date(strVal);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+    }
+
+    if (strVal.includes(':')) {
+      const parts = strVal.split(':');
+      let hours = parseInt(parts[0], 10);
+      let minutes = parseInt(parts[1], 10);
+      if (!isNaN(hours) && !isNaN(minutes)) {
+        const period = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
+        return `${hours}:${formattedMinutes} ${period}`;
+      }
+    }
+
+    return strVal;
   }
 
   // متابعة حالة التسجيل
@@ -335,82 +370,6 @@
     }
   };
 
-  // دالة مساعدة لتحليل صيغة DD/MM/YYYY أو YYYY-MM-DD إلى كائن Date
-  function parseDateString(dateStr) {
-    if (!dateStr) return new Date();
-    if (dateStr instanceof Date) return dateStr;
-    
-    const str = String(dateStr).trim();
-    if (str.includes('/')) {
-      const parts = str.split('/');
-      if (parts.length === 3) {
-        const day = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        const year = parseInt(parts[2], 10);
-        return new Date(year, month, day);
-      }
-    } else if (str.includes('-')) {
-      const parts = str.split('-');
-      if (parts.length === 3) {
-        if (parts[0].length === 4) { // YYYY-MM-DD
-          return new Date(parts[0], parseInt(parts[1], 10) - 1, parts[2]);
-        } else { // DD-MM-YYYY
-          return new Date(parts[2], parseInt(parts[1], 10) - 1, parts[0]);
-        }
-      }
-    }
-    
-    const parsed = new Date(str);
-    return isNaN(parsed.getTime()) ? new Date() : parsed;
-  }
-
-  // 🛠️ دالة تحويل أوقات Excel الملتفة (Dates / Strings / Numbers) إلى وقت نظيف بصيغة AM/PM
-  function parseTimeString(val) {
-    if (val === undefined || val === null || val === '') return '';
-
-    // 1. إذا تحول الوقت إلى Date Object من SheetJS
-    if (val instanceof Date) {
-      if (isNaN(val.getTime())) return '';
-      return val.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-    }
-
-    // 2. إذا كان رقم عشري من Excel (مثل 0.375)
-    if (typeof val === 'number') {
-      const totalSeconds = Math.round(val * 24 * 3600);
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const period = hours >= 12 ? 'PM' : 'AM';
-      const formattedHours = hours % 12 || 12;
-      const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
-      return `${formattedHours}:${formattedMinutes} ${period}`;
-    }
-
-    let strVal = String(val).trim();
-
-    // 3. إذا تحول الوقت لنص يحتوي على تاريخ 1899 (مثل النص الذي ظهر معك)
-    if (strVal.includes('1899') || strVal.includes('GMT') || strVal.includes('Sat') || strVal.includes('Sun')) {
-      const d = new Date(strVal);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-      }
-    }
-
-    // 4. إذا كان النص يحتوي على وقت صيغة 24 ساعة (مثل 17:30 أو 09:00:00)
-    if (strVal.includes(':')) {
-      const parts = strVal.split(':');
-      let hours = parseInt(parts[0], 10);
-      let minutes = parseInt(parts[1], 10);
-      if (!isNaN(hours) && !isNaN(minutes)) {
-        const period = hours >= 12 ? 'PM' : 'AM';
-        hours = hours % 12 || 12;
-        const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
-        return `${hours}:${formattedMinutes} ${period}`;
-      }
-    }
-
-    return strVal;
-  }
-
   // 📥 قراءة ورفع شيت الإكسيل إلى الفايربيس
   window.uploadExcel = function() {
     const fileInput = document.getElementById('excelFile');
@@ -424,7 +383,6 @@
     reader.onload = async function(e) {
       try {
         const data = new Uint8Array(e.target.result);
-        // تم إلغاء raw: false لتجنب نصوص 1899 المعقدة
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         
         const firstSheetName = workbook.SheetNames[0];
@@ -495,8 +453,8 @@
       const querySnapshot = await getDocs(q);
       
       allLogs = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
         let dateObj = data.timestamp ? data.timestamp.toDate() : parseDateString(data.date);
         data.year = data.year || dateObj.getFullYear();
         data.month = data.month || (dateObj.getMonth() + 1);
@@ -639,7 +597,6 @@
     filteredLogs.forEach(log => {
       const tr = document.createElement('tr');
       
-      // التواريخ تعرض الآن باللغة الإنجليزية MM/DD/YYYY
       const dateStr = log.dateObj ? log.dateObj.toLocaleDateString('en-US') : (log.date || '-');
       const isPresent = !log.checkOut || log.checkOut === '-' || log.checkOut === '';
 
