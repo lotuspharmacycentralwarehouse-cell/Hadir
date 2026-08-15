@@ -276,21 +276,54 @@ async function loadLogs() {
   }
 }
 
-  function renderLogList() {
-    const list = document.getElementById('logList');
-    list.innerHTML = '';
+  // 1. معالجة وتنسيق كائن التاريخ
+function formatDate(data) {
+  let dateObj = null;
 
-    if (userLogs.length === 0) {
-      list.innerHTML = '<li>لا توجد سجلات سابقة لك.</li>';
-      return;
-    }
-
-    userLogs.forEach((data) => {
-      const li = document.createElement('li');
-      li.innerHTML = `<strong>التاريخ:</strong> ${data.formattedDate} | <strong>حضور:</strong> ${data.checkIn} | <strong>انصراف:</strong> ${data.checkOut || '<span style="color:#dc3545;">لم يسجل بعد</span>'}`;
-      list.appendChild(li);
-    });
+  // إذا كان التاريخ كائن Timestamp من Firestore
+  if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+    dateObj = data.timestamp.toDate();
+  } 
+  // إذا كان التاريخ مجرد ثوانٍ وثوانٍ نانوية مفككة
+  else if (data.timestamp && data.timestamp.seconds) {
+    dateObj = new Date(data.timestamp.seconds * 1000);
   }
+  // إذا كان التاريخ مخزناً كـ Date أو String
+  else if (data.date) {
+    dateObj = new Date(data.date);
+  }
+
+  // إذا نجح التحويل إلى تاريخ صحيح، يتم تنسيقه
+  if (dateObj && !isNaN(dateObj.getTime())) {
+    return dateObj.toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }); // أو استخدم 'en-US' للتاريخ بالإنجليزية (MM/DD/YYYY)
+  }
+
+  // في حال تعذر التحويل، إرجاع النص الأصلي المتاح
+  return data.date || 'تاريخ غير محدد';
+}
+
+// 2. عرض القائمة
+function renderLogList() {
+  const list = document.getElementById('logList');
+  list.innerHTML = '';
+
+  if (userLogs.length === 0) {
+    list.innerHTML = '<li>لا توجد سجلات سابقة لك.</li>';
+    return;
+  }
+
+  userLogs.forEach((data) => {
+    const li = document.createElement('li');
+    const formattedDate = formatDate(data);
+    
+    li.innerHTML = `<strong>التاريخ:</strong> ${formattedDate} | <strong>حضور:</strong> ${data.checkIn} | <strong>انصراف:</strong> ${data.checkOut || '<span style="color:#dc3545;">لم يسجل بعد</span>'}`;
+    list.appendChild(li);
+  });
+}
 
   function populateYearSelector() {
     const yearSelect = document.getElementById('yearSelect');
