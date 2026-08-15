@@ -6,7 +6,7 @@
   <title>نظام الحضور والانصراف - تسجيل الدخول</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #f4f6f8; margin: 0; }
-    .card { background: white; padding: 25px; border-radius: 12px; max-width: 500px; margin: 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    .card { background: white; padding: 25px; border-radius: 12px; max-width: 550px; margin: 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
     h2, h3 { color: #333; margin-top: 0; }
     label { font-size: 14px; color: #555; display: block; margin-top: 10px; }
     input, select, button { width: 100%; padding: 12px; margin-top: 6px; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
@@ -20,7 +20,9 @@
     .hidden { display: none; }
     ul { margin-top: 15px; padding: 0; list-style: none; }
     li { background: #f8f9fa; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-right: 4px solid #007bff; font-size: 14px; line-height: 1.6; }
-    .user-info { background: #e9ecef; padding: 12px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .user-info { background: #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    .user-info-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .user-details { display: flex; gap: 15px; font-size: 13px; color: #444; background: #fff; padding: 8px 12px; border-radius: 6px; border: 1px solid #dee2e6; }
     .export-box, .manual-entry-box { background: #f1f3f5; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; margin-top: 15px; }
     .flex-row { display: flex; gap: 10px; }
     .flex-row > div { flex: 1; }
@@ -46,11 +48,19 @@
   <!-- ================= 2. شاشة الحضور والانصراف والتصدير ================= -->
   <div id="attendanceSection" class="hidden">
     <div class="user-info">
-      <div>
-        <div style="font-size: 12px; color: #666;">الموظف الحالي:</div>
-        <strong id="userDisplay" style="color: #007bff; font-size: 16px;"></strong>
+      <div class="user-info-header">
+        <div>
+          <div style="font-size: 12px; color: #666;">الموظف الحالي:</div>
+          <strong id="userDisplay" style="color: #007bff; font-size: 16px;"></strong>
+        </div>
+        <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 6px 12px; margin: 0; font-size: 12px;">خروج</button>
       </div>
-      <button onclick="logout()" class="btn-secondary" style="width: auto; padding: 6px 12px; margin: 0; font-size: 12px;">خروج</button>
+      
+      <!-- إظهار كود الموظف والوظيفة الثابتة -->
+      <div class="user-details">
+        <div><strong>كود الموظف:</strong> <span id="empCodeDisplay">...</span></div>
+        <div><strong>الوظيفة:</strong> <span id="empJobDisplay">...</span></div>
+      </div>
     </div>
 
     <h2>تسجيل الحضور والانصراف اليدوي</h2>
@@ -104,7 +114,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, getDoc, doc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyABP_eeOuqYlpSd848PlpKvx71oFLsxREQ",
@@ -120,6 +130,7 @@
   const db = getFirestore(app);
 
   let currentUser = null;
+  let currentProfile = { employeeCode: '', jobTitle: '' };
   let userLogs = [];
 
   const monthNames = [
@@ -129,10 +140,9 @@
   ];
   const ALLOWED_ADMIN_EMAIL = "admin@ess.system";
 
-  // تعيين تاريخ اليوم كقيمة افتراضية لمدخل التاريخ
   document.getElementById('entryDate').valueAsDate = new Date();
 
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(async (user) => {
     if (user) {
       if (user.email === ALLOWED_ADMIN_EMAIL) {
         window.location.href = "admin.html";
@@ -146,6 +156,9 @@
       const displayName = user.displayName || user.email;
       document.getElementById('userDisplay').textContent = displayName;
       
+      // جلب بيانات الموظف الثابتة (الكود والوظيفة)
+      await loadUserProfile();
+      
       loadLogs();
     } else {
       currentUser = null;
@@ -153,6 +166,35 @@
       document.getElementById('attendanceSection').classList.add('hidden');
     }
   });
+
+  // جلب أو إنشاء ملف بيانات الموظف الثابتة
+  async function loadUserProfile() {
+    if (!currentUser) return;
+    try {
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const userSnap = await getDoc(userDocRef);
+
+      if (userSnap.exists()) {
+        currentProfile = userSnap.data();
+      } else {
+        // في حال عدم وجود ملف شخصي مسبق، يتم إنشاء بيانات افتراضية
+        const defaultCode = "EMP-" + Math.floor(1000 + Math.random() * 9000);
+        const defaultJob = "موظف";
+        currentProfile = {
+          employeeCode: defaultCode,
+          jobTitle: defaultJob,
+          email: currentUser.email,
+          name: currentUser.displayName || currentUser.email.split('@')[0]
+        };
+        await setDoc(userDocRef, currentProfile);
+      }
+
+      document.getElementById('empCodeDisplay').textContent = currentProfile.employeeCode || 'غير محدد';
+      document.getElementById('empJobDisplay').textContent = currentProfile.jobTitle || 'غير محدد';
+    } catch (e) {
+      console.error("خطأ جلب بيانات الموظف:", e);
+    }
+  }
 
   // 1. تسجيل الدخول
   window.login = async function() {
@@ -174,7 +216,6 @@
     signOut(auth);
   };
 
-  // دالة تحويل الوقت من 24-hour إلى صيغة AM/PM (مثل 04:30 PM)
   function formatTimeTo12Hour(timeStr) {
     if (!timeStr) return null;
     const [hours, minutes] = timeStr.split(':');
@@ -186,7 +227,7 @@
     return `${formattedHour}:${minutes} ${ampm}`;
   }
 
-  // 3. حفظ سجل الحضور والانصراف اليدوي
+  // 3. حفظ سجل الحضور والانصراف اليدوي مع الكود والوظيفة
   window.saveAttendanceRecord = async function() {
     if (!currentUser) return;
 
@@ -207,6 +248,8 @@
       await addDoc(collection(db, "attendance"), {
         userId: currentUser.uid,
         userEmail: currentUser.email,
+        employeeCode: currentProfile.employeeCode || '',
+        jobTitle: currentProfile.jobTitle || '',
         name: employeeName,
         date: selectedDate.toLocaleDateString('en-US'),
         year: selectedDate.getFullYear(),
@@ -342,7 +385,7 @@
     });
   };
 
-  // 5. تصدير التقرير
+  // 5. تصدير التقرير ليشمل كود الموظف والوظيفة
   window.exportToExcel = function() {
     const selectedMonth = parseInt(document.getElementById('monthSelect').value);
     const selectedYear = parseInt(document.getElementById('yearSelect').value);
@@ -358,11 +401,13 @@
     }
 
     let csvContent = "\uFEFF"; 
-    csvContent += "الاسم,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف\n";
+    csvContent += "كود الموظف,الاسم,الوظيفة,البريد الإلكتروني,التاريخ,وقت الحضور,وقت الانصراف\n";
 
     filteredLogs.forEach(row => {
       const checkOutStr = row.checkOut ? row.checkOut : 'لم يسجل انصراف';
-      csvContent += `"${row.name}","${row.userEmail}","${row.formattedDate}","${row.checkIn}","${checkOutStr}"\n`;
+      const empCode = row.employeeCode || currentProfile.employeeCode || '';
+      const jobTitle = row.jobTitle || currentProfile.jobTitle || '';
+      csvContent += `"${empCode}","${row.name}","${jobTitle}","${row.userEmail}","${row.formattedDate}","${row.checkIn}","${checkOutStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
