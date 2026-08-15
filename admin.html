@@ -205,6 +205,29 @@
     }
   });
 
+  // --- دالة تحويل أي صيغة وقت إلى نظام 12 ساعة للعرض ---
+  function formatTimeTo12Hour(timeStr) {
+    if (!timeStr || timeStr === '-' || timeStr.trim() === '') return '-';
+
+    // إذا كان يحتوي مسبقاً على ص أو م أو AM / PM
+    if (/[صمa-zA-Z]/.test(timeStr)) return timeStr;
+
+    const parts = timeStr.trim().split(':');
+    if (parts.length < 2) return timeStr;
+
+    let hours = parseInt(parts[0], 10);
+    const minutes = parts[1].substring(0, 2);
+
+    if (isNaN(hours)) return timeStr;
+
+    const period = hours >= 12 ? 'م' : 'ص';
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+
+    const formattedHours = String(hours).padStart(2, '0');
+    return `${formattedHours}:${minutes} ${period}`;
+  }
+
   // --- دوال تحويل أرقام إكسل لتاريخ ووقت عادي ---
   function excelSerialToDate(serial) {
     if (!serial || isNaN(serial)) return serial;
@@ -226,11 +249,11 @@
     
     // إذا كانت القيمة نص وقت عادي مثل "08:30" أو "14:15"
     if (typeof serial === 'string' && serial.includes(':')) {
-      return serial;
+      return formatTimeTo12Hour(serial);
     }
 
     const num = parseFloat(serial);
-    if (isNaN(num)) return serial;
+    if (isNaN(num)) return formatTimeTo12Hour(serial);
 
     // الحصول على الجزء العشري فقط للوقت
     const timeFraction = num % 1;
@@ -243,7 +266,7 @@
     const formattedHours = String(hours).padStart(2, '0');
     const formattedMinutes = String(minutes).padStart(2, '0');
 
-    return `${formattedHours}:${formattedMinutes}`;
+    return formatTimeTo12Hour(`${formattedHours}:${formattedMinutes}`);
   }
 
   function generateRandomPassword() {
@@ -429,7 +452,7 @@
     }
   }
 
-  // 5. عرض جدول الحضور
+  // 5. عرض جدول الحضور بتنسيق 12 ساعة
   function renderTable() {
     const tbody = document.getElementById('attendanceTableBody');
     tbody.innerHTML = '';
@@ -443,14 +466,17 @@
       const empCode = log.userId || '-';
       const empInfo = employeesMap[empCode] || {};
       
+      const formattedCheckIn = formatTimeTo12Hour(log.checkIn);
+      const formattedCheckOut = formatTimeTo12Hour(log.checkOut);
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${empCode}</strong></td>
         <td>${empInfo.name || '<span style="color:#888;">غير معروف</span>'}</td>
         <td>${empInfo.jobTitle || '-'}</td>
         <td>${log.date || '-'}</td>
-        <td>🟢 ${log.checkIn || '-'}</td>
-        <td>🔴 ${log.checkOut || '<span style="color:#dc3545;">لم يسجل</span>'}</td>
+        <td>🟢 ${formattedCheckIn}</td>
+        <td>🔴 ${formattedCheckOut !== '-' ? formattedCheckOut : '<span style="color:#dc3545;">لم يسجل</span>'}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -506,9 +532,10 @@
       const empName = empInfo.name || '';
       const empJob = empInfo.jobTitle || '';
       const empEmail = empInfo.userEmail || '';
-      const checkOutStr = log.checkOut ? log.checkOut : 'لم يسجل انصراف';
+      const checkInStr = formatTimeTo12Hour(log.checkIn);
+      const checkOutStr = log.checkOut ? formatTimeTo12Hour(log.checkOut) : 'لم يسجل انصراف';
 
-      csvContent += `"${empCode}","${empName}","${empJob}","${empEmail}","${log.date}","${log.checkIn}","${checkOutStr}"\n`;
+      csvContent += `"${empCode}","${empName}","${empJob}","${empEmail}","${log.date}","${checkInStr}","${checkOutStr}"\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
